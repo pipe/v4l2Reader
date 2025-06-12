@@ -6,13 +6,13 @@ package pe.pi.v4l2reader;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
+import java.lang.foreign.Linker;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.SymbolLookup;
 import static java.lang.foreign.ValueLayout.ADDRESS;
 import static java.lang.foreign.ValueLayout.JAVA_INT;
 import static java.lang.foreign.ValueLayout.JAVA_LONG;
 import java.lang.invoke.MethodHandle;
-import static pe.pi.v4l2reader.RawRead.linker;
 
 /**
  *
@@ -37,9 +37,11 @@ public class V4l2Ioctls extends V4l2Structs {
     protected final SymbolLookup libc;
     protected final MethodHandle close;
     protected final MemorySegment videoCapture;
+    static final Linker linker = Linker.nativeLinker();
 
     public V4l2Ioctls() {
         super();
+
         arena = Arena.ofConfined();
         libc = linker.defaultLookup(); //
 
