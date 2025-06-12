@@ -27,9 +27,16 @@ public class MmapRead extends V4l2Ioctls {
     V4l2Buffer buffers[];
     byte[] out;
     int videoDev = 0;
-
+    private int width;
+    private int height;
     public MmapRead(String dev) throws Throwable {
+        this(dev,1920,1080);
+    }
+
+    public MmapRead(String dev,int w,int h) throws Throwable {
         super();
+        width = w;
+        height =h;
         path = java.nio.file.Paths.get(dev);
 
         if (Files.isReadable(path)) {
@@ -47,11 +54,11 @@ public class MmapRead extends V4l2Ioctls {
             var buf = dqBuffer();
             int index = buf.getInt("index");
             byte [] ret = out;
-            Log.debug("bb index is " + index);
+            Log.info("bb index is " + index);
             if (index < buffers.length) {
                 ByteBuffer fb = buffers[index].asByteBuffer();
                 fb.get(0, out);
-                Log.debug("sucked into our buffer");
+                Log.info("sucked into our buffer");
                 ret = process(out);
             }
             enqueueBuffer(buf);
@@ -65,7 +72,7 @@ public class MmapRead extends V4l2Ioctls {
         if (ret < 0) {
             Log.error("Unable to " + (enable ? "start" : "stop") + " streaming ");
         } else {
-            Log.debug("Streaming enabled " + enable);
+            Log.info("Streaming enabled " + enable);
         }
     }
 
@@ -79,7 +86,7 @@ public class MmapRead extends V4l2Ioctls {
         if (ret < 0) {
             Log.error("Unable to queue buffer");
         } else {
-            Log.debug("buffer enqueued");
+            Log.info("buffer enqueued");
         }
     }
 
@@ -110,7 +117,7 @@ public class MmapRead extends V4l2Ioctls {
         buffers = new V4l2Buffer[bcount];
         for (int i = 0; i < bcount; i++) {
             buffers[i] = mapBuffer(fd, arena, libc, i);
-            Log.debug("buffer[" + i + "] = " + buffers[i]);
+            Log.info("buffer[" + i + "] = " + buffers[i]);
         }
 
         return fd;
@@ -121,8 +128,8 @@ public class MmapRead extends V4l2Ioctls {
         // Allocate and populate the v4l2_format structure
         MemorySegment fmt = arena.allocate(v4l2_format);
         fmt.set(JAVA_INT, v4l2_format.byteOffset(groupElement("type")), V4L2_BUF_TYPE_VIDEO_CAPTURE);
-        fmt.set(JAVA_INT, v4l2_format.byteOffset(groupElement("pix"), groupElement("width")), 1920);
-        fmt.set(JAVA_INT, v4l2_format.byteOffset(groupElement("pix"), groupElement("height")), 1080);
+        fmt.set(JAVA_INT, v4l2_format.byteOffset(groupElement("pix"), groupElement("width")), width);
+        fmt.set(JAVA_INT, v4l2_format.byteOffset(groupElement("pix"), groupElement("height")), height);
         fmt.set(JAVA_INT, v4l2_format.byteOffset(groupElement("pix"), groupElement("pixelformat")), V4L2_PIX_FMT_NV12);
         fmt.set(JAVA_INT, v4l2_format.byteOffset(groupElement("pix"), groupElement("field")), V4L2_FIELD_NONE);
 
@@ -153,7 +160,7 @@ public class MmapRead extends V4l2Ioctls {
             Log.error("VIDIOC_REQBUFS failed");
         } else {
             count = req.get(JAVA_INT, v4l2_requestbuffers.byteOffset(groupElement("count")));
-            Log.debug("Requested MMAP buffers: " + count);
+            Log.info("Requested MMAP buffers: " + count);
         }
         return count;
     }
@@ -245,7 +252,7 @@ public class MmapRead extends V4l2Ioctls {
         int length = vbuf.getInt("length");
         int index = vbuf.getInt("index");
 
-        Log.debug("DQ'd index " + index + " offset = " + offset + " length= " + length);
+        Log.info("DQ'd index " + index + " offset = " + offset + " length= " + length);
         return vbuf;
     }
 
@@ -261,7 +268,7 @@ public class MmapRead extends V4l2Ioctls {
         long offset = vbuf.getLong("m_offset");
         int length = vbuf.getInt("length");
         int rindex = vbuf.getInt("index");
-        Log.debug("index " + index + " rindex " + rindex + " offset = " + offset + " length= " + length);
+        Log.info("index " + index + " rindex " + rindex + " offset = " + offset + " length= " + length);
         if (out == null) {
             out = new byte[length];
         }
@@ -278,17 +285,17 @@ public class MmapRead extends V4l2Ioctls {
         }
     }
 
-    public void stop(SymbolLookup libc, Arena arena, int fd) throws Throwable {
+    public void stop() throws Throwable {
 
         Log.debug("stop streaming (if we are)");
-        int res = (int) ioctl.invoke(fd, VIDIOC_STREAMOFF, videoCapture);
+        int res = (int) ioctl.invoke(videoDev, VIDIOC_STREAMOFF, videoCapture);
         if (res < 0) {
             Log.error("VIDIOC_STREAMOFF failed");
         }
 
         Log.debug("close video device");
 
-        res = (int) close.invoke(fd);
+        res = (int) close.invoke(videoDev);
         if (res != 0) {
             System.err.println("close failed");
         }

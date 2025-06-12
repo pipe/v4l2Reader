@@ -23,9 +23,11 @@ public class ReadAndEncode {
             encoder = new Encoder(1920, 1080);
 
             MmapRead reader = new MmapRead(adev) {
-                public void process() {
+                @Override
+                public byte[] process(byte [] frame) {
                     var h = encoder.encode(out);
                     Log.debug("encoded to h264 " + h.length);
+                    return h;
                 }
             };
             reader.startCap();
