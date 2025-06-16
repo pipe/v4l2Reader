@@ -54,11 +54,11 @@ public class MmapRead extends V4l2Ioctls {
             var buf = dqBuffer();
             int index = buf.getInt("index");
             byte [] ret = out;
-            Log.info("bb index is " + index);
+            Log.verb("bb index is " + index);
             if (index < buffers.length) {
                 ByteBuffer fb = buffers[index].asByteBuffer();
                 fb.get(0, out);
-                Log.info("sucked into our buffer");
+                Log.verb("sucked into our buffer");
                 ret = process(out);
             }
             enqueueBuffer(buf);
@@ -86,7 +86,7 @@ public class MmapRead extends V4l2Ioctls {
         if (ret < 0) {
             Log.error("Unable to queue buffer");
         } else {
-            Log.info("buffer enqueued");
+            Log.verb("buffer enqueued");
         }
     }
 
@@ -117,7 +117,7 @@ public class MmapRead extends V4l2Ioctls {
         buffers = new V4l2Buffer[bcount];
         for (int i = 0; i < bcount; i++) {
             buffers[i] = mapBuffer(fd, arena, libc, i);
-            Log.info("buffer[" + i + "] = " + buffers[i]);
+            Log.verb("buffer[" + i + "] = " + buffers[i]);
         }
 
         return fd;
@@ -160,7 +160,7 @@ public class MmapRead extends V4l2Ioctls {
             Log.error("VIDIOC_REQBUFS failed");
         } else {
             count = req.get(JAVA_INT, v4l2_requestbuffers.byteOffset(groupElement("count")));
-            Log.info("Requested MMAP buffers: " + count);
+            Log.verb("Requested MMAP buffers: " + count);
         }
         return count;
     }
@@ -252,7 +252,7 @@ public class MmapRead extends V4l2Ioctls {
         int length = vbuf.getInt("length");
         int index = vbuf.getInt("index");
 
-        Log.info("DQ'd index " + index + " offset = " + offset + " length= " + length);
+        Log.verb("DQ'd index " + index + " offset = " + offset + " length= " + length);
         return vbuf;
     }
 
@@ -268,7 +268,7 @@ public class MmapRead extends V4l2Ioctls {
         long offset = vbuf.getLong("m_offset");
         int length = vbuf.getInt("length");
         int rindex = vbuf.getInt("index");
-        Log.info("index " + index + " rindex " + rindex + " offset = " + offset + " length= " + length);
+        Log.verb("index " + index + " rindex " + rindex + " offset = " + offset + " length= " + length);
         if (out == null) {
             out = new byte[length];
         }
