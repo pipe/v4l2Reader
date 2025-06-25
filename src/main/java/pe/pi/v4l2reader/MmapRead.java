@@ -18,25 +18,24 @@ import static pe.pi.v4l2reader.V4l2Ioctls.VIDIOC_QUERYBUF;
  *
  * @author thp
  */
-public class MmapRead extends V4l2Ioctls {
-
-
+public class MmapRead extends V4l2Ioctls implements MmapReader {
 
     java.nio.file.Path path;
 
     V4l2Buffer buffers[];
     byte[] out;
     int videoDev = 0;
-    private int width;
-    private int height;
+    int width;
+    int height;
+
     public MmapRead(String dev) throws Throwable {
-        this(dev,1920,1080);
+        this(dev, 1920, 1080);
     }
 
-    public MmapRead(String dev,int w,int h) throws Throwable {
+    public MmapRead(String dev, int w, int h) throws Throwable {
         super();
         width = w;
-        height =h;
+        height = h;
         path = java.nio.file.Paths.get(dev);
 
         if (Files.isReadable(path)) {
@@ -46,23 +45,24 @@ public class MmapRead extends V4l2Ioctls {
         }
     }
 
-    public byte[] process(byte [] frame){
+    public byte[] process(byte[] frame) {
         return frame;
     }
-    
-    public byte [] read() throws Throwable {
-            var buf = dqBuffer();
-            int index = buf.getInt("index");
-            byte [] ret = out;
-            Log.verb("bb index is " + index);
-            if (index < buffers.length) {
-                ByteBuffer fb = buffers[index].asByteBuffer();
-                fb.get(0, out);
-                Log.verb("sucked into our buffer");
-                ret = process(out);
-            }
-            enqueueBuffer(buf);
-            return ret;
+
+    @Override
+    public byte[] read() throws Throwable {
+        var buf = dqBuffer();
+        int index = buf.getInt("index");
+        byte[] ret = out;
+        Log.verb("bb index is " + index);
+        if (index < buffers.length) {
+            ByteBuffer fb = buffers[index].asByteBuffer();
+            fb.get(0, out);
+            Log.verb("sucked into our buffer");
+            ret = process(out);
+        }
+        enqueueBuffer(buf);
+        return ret;
     }
 
     public void videoEnable(boolean enable) throws Throwable {
@@ -76,6 +76,7 @@ public class MmapRead extends V4l2Ioctls {
         }
     }
 
+    @Override
     public void startCap() throws Throwable {
         videoEnable(true);
 
@@ -95,7 +96,6 @@ public class MmapRead extends V4l2Ioctls {
         final int O_RDWR = 2;
 
         Log.debug("in setup()");
-
 
         Log.debug("common functions allocated");
 
@@ -208,7 +208,7 @@ public class MmapRead extends V4l2Ioctls {
                 long offset = getLong("m_offset");
                 long length = getInt("length");
                 int res;
-                res = (int) munmap.invoke(offset, (long) length);
+                res = (int) Mmap.munmap.invoke(offset, (long) length);
                 if (res != 0) {
                     Log.error("munmap failed");
                 }
@@ -219,7 +219,7 @@ public class MmapRead extends V4l2Ioctls {
         }
 
         void map(int length, long offset) throws Throwable {
-            MemorySegment addr = (MemorySegment) mmap.invoke(
+            MemorySegment addr = (MemorySegment) Mmap.mmap.invoke(
                     MemorySegment.NULL, length, PROT_READ | PROT_WRITE, MAP_SHARED, videoDev, offset);
             Consumer<MemorySegment> cleanup = s -> {
                 try {
@@ -228,12 +228,14 @@ public class MmapRead extends V4l2Ioctls {
                     Log.error("cant unmap");
                 }
             };
+            Log.info("mapped to "+addr.address());
             mapped = addr.reinterpret(length, arena, cleanup);
+            Log.info("reinterp to "+mapped.address());
 
         }
 
         ByteBuffer asByteBuffer() {
-            return (mapped == null)? ByteBuffer.allocate(0):mapped.asByteBuffer();
+            return (mapped == null) ? ByteBuffer.allocate(0) : mapped.asByteBuffer();
         }
     }
 
@@ -279,7 +281,7 @@ public class MmapRead extends V4l2Ioctls {
 
     void unmapBuffer(long offset, long length) throws Throwable {
 
-        int res = (int) munmap.invoke(offset, (long) length);
+        int res = (int) Mmap.munmap.invoke(offset, (long) length);
         if (res != 0) {
             Log.error("munmap failed");
         }

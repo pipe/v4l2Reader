@@ -32,14 +32,13 @@ public class V4l2Ioctls extends V4l2Structs {
     protected final Arena arena;
     protected final MethodHandle open;
     protected final MethodHandle ioctl;
-    protected final MethodHandle munmap;
-    protected final MethodHandle mmap;
+
     protected final SymbolLookup libc;
     protected final MethodHandle close;
     protected final MemorySegment videoCapture;
     static final Linker linker = Linker.nativeLinker();
 
-    public V4l2Ioctls() {
+    public V4l2Ioctls(){
         super();
 
         arena = Arena.ofConfined();
@@ -53,14 +52,7 @@ public class V4l2Ioctls extends V4l2Structs {
                 libc.find("ioctl").orElseThrow(),
                 FunctionDescriptor.of(JAVA_INT, JAVA_INT, JAVA_LONG, ADDRESS)
         );
-        munmap = linker.downcallHandle(
-                libc.find("munmap").orElseThrow(),
-                FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG)
-        );
-        mmap = linker.downcallHandle(
-                libc.find("mmap").orElseThrow(),
-                FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_LONG, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_LONG)
-        );
+
         close = linker.downcallHandle(
                 libc.find("close").orElseThrow(),
                 FunctionDescriptor.of(JAVA_INT, JAVA_INT)
