@@ -5,6 +5,7 @@
 package pe.pi.v4l2reader;
 
 import com.phono.srtplight.Log;
+import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
@@ -47,8 +48,7 @@ public class AmlMediaReader implements MmapReader {
     int width;
     int height;
     private final Arena arena;
-    MemorySegment video_param;
-    private MemorySegment video_ent;
+    MemorySegment video_ent;
     private V4l2Buffer[] buffers;
     private final MethodHandle aisp_enable;
     private final MethodHandle alg2User;
@@ -98,18 +98,10 @@ public class AmlMediaReader implements MmapReader {
         int fd = 0;
         MemorySegment devName = arena.allocateFrom(path.toString());
 
-        var v4l2_media_stream = media_stream.allocate(arena);
+        MemorySegment v4l2_media_stream = media_stream.allocate(arena);
 
         var mediaDev = MangledMediaAPI.media_device_new(devName);
-        //media_stream.media_dev(mediaDev,);
 
-        /*
-            rc = mediaStreamInit(&tparm->v4l2_media_stream, tparm->v4l2_media_stream.media_dev);
-    if (0 != rc) {
-        ERR("[T#%d] The %s device init fail.\n", tparm->mediadevname);
-        return NULL;
-    } 
-         */
         int rc = MangledMediaAPI.mediaStreamInit(v4l2_media_stream, mediaDev);
         if (rc != 0) {
             Log.error("mediaStreamInit failed");
@@ -118,22 +110,11 @@ public class AmlMediaReader implements MmapReader {
         video_ent = media_stream.video_ent0(v4l2_media_stream);
         fd = media_entity.fd(video_ent);
         Log.info("Inited Media Stream video fd is " + fd);
-        /*
-    memset (&v4l2_cap, 0, sizeof (struct v4l2_capability));
-    rc = v4l2_video_get_capability(tparm->v4l2_media_stream.video_ent0, &v4l2_cap);
-    if (rc < 0) {
-        ERR (" Error: get capability.\n");
-        return NULL;
-    }
-         */
+
         var v4l2_cap = v4l2_capability.allocate(arena);
         MangledMediaAPI.v4l2_video_get_capability(video_ent, v4l2_cap);
         Log.info("Got v4l2 caps for Media Stream video fd is " + fd);
 
-        /*
-            media_set_wdrMode(&tparm->v4l2_media_stream, 0);
-    media_set_wdrMode(&tparm->v4l2_media_stream, tparm->wdr_mode);
-         */
         MangledMediaAPI.media_set_wdrMode(v4l2_media_stream, 0);
         MangledMediaAPI.media_set_wdrMode(v4l2_media_stream, MangledMediaAPI.WDR_MODE_NONE());
 
@@ -179,15 +160,33 @@ public class AmlMediaReader implements MmapReader {
         v4l2_requestbuffers.memory(v4l2_rb, MangledMediaAPI.V4L2_MEMORY_MMAP());
         rc = MangledMediaAPI.v4l2_video_req_bufs(video_ent, v4l2_rb);
         if (rc < 0) {
-            Log.error("v4l2_video_req_bufs failed ");
+            Log.error("v4l2_video_req_bufs stream failed ");
             return -1;
         }
         int bcount = v4l2_requestbuffers.count(v4l2_rb);
 
         Log.info(" v4l2_video_req_bufs got " + bcount);
 
-        video_param = media_stream.video_param(v4l2_media_stream);
+        var video_param = media_stream.video_param(v4l2_media_stream);
         var video_ent0 = media_stream.video_ent0(v4l2_media_stream);
+        v4l2_rb.fill((byte)0);
+        v4l2_requestbuffers.count(v4l2_rb, 1);
+        v4l2_requestbuffers.type(v4l2_rb, MangledMediaAPI.V4L2_BUF_TYPE_VIDEO_CAPTURE());
+        v4l2_requestbuffers.memory(v4l2_rb, MangledMediaAPI.V4L2_MEMORY_MMAP());
+        rc = MangledMediaAPI.v4l2_video_req_bufs(video_param, v4l2_rb);
+        if (rc < 0) {
+            Log.error("v4l2_video_req_bufs param failed ");
+            return -1;
+        }
+        buffers = new V4l2Buffer[bcount];
+        for (int i = 0; i < bcount; i++) {
+            buffers[i] = mapBuffer(video_ent,i);
+            Log.verb("buffer[" + i + "] = " + buffers[i]);
+        }
+        
+        
+        V4l2Buffer paramBuffer = mapBuffer(video_param,0);
+        paramBuffer.eq();
         MemorySegment sensor_ent = media_stream.sensor_ent(v4l2_media_stream);
 
         videoDev = media_entity.fd(video_ent0);
@@ -209,29 +208,35 @@ public class AmlMediaReader implements MmapReader {
         MangledMediaAPI.cmos_set_sensor_entity(sensorCfg, sensor_ent, 0);
         MangledMediaAPI.cmos_sensor_control_cb(sensorCfg, stSnsExp);
         MangledMediaAPI.cmos_get_sensor_calibration(sensorCfg, sensor_ent, calib);
+
         int ctx = 0;
         aisp_enable.invokeExact(ctx, pstAlgCtx, calib);
 
-        buffers = new V4l2Buffer[bcount];
-        for (int i = 0; i < bcount; i++) {
-            buffers[i] = mapBuffer(i);
-            Log.verb("buffer[" + i + "] = " + buffers[i]);
-        }
-        MemorySegment alg_init = arena.allocate(256 * 1024);
-        alg_init.fill((byte)0);
-        alg2User.invokeExact(ctx, alg_init);
-        alg2Kernel.invokeExact(ctx, buffers[0].addr);
-        /*
-            memset(alg_init, 0, sizeof(alg_init));
+        Log.info("run alg2User ");
 
-    (ispIf.alg2User)(0, alg_init);
-    (ispIf.alg2Kernel)(0, tparm->v4l2_mem_param[0]);
-         */
-        //int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+
+        MemorySegment alg_init = arena.allocate(256 * 1024);
+        alg_init.fill((byte) 0);
+  
+        alg2User.invokeExact(ctx, alg_init);
+        Log.info("run alg2Kernel");
+        alg2Kernel.invokeExact(ctx, paramBuffer.mapped);
+        
+	Log.info("enqueue video buffers");
+
+        for (var buf : buffers) {
+            buf.eq();
+        }
+	Log.info("Start video_param");
+        rc = MangledMediaAPI.v4l2_video_stream_on(video_param, MangledMediaAPI.V4L2_BUF_TYPE_VIDEO_CAPTURE());
+        if (rc < 0) {
+            Log.error("cant start param stream  ");
+        }
         return videoDev;
 
     }
 
+    @Override
     public void startCap() throws Throwable {
         int rc = MangledMediaAPI.v4l2_video_stream_on(video_ent, MangledMediaAPI.V4L2_BUF_TYPE_VIDEO_CAPTURE());
         if (rc < 0) {
@@ -256,25 +261,23 @@ public class AmlMediaReader implements MmapReader {
         MemorySegment buf;
         MemorySegment mapped;
         MemorySegment addr;
+        MemorySegment ent;
 
-        V4l2Buffer() {
-            this(v4l2_buffer.allocate(arena));
-        }
-
-        V4l2Buffer(MemorySegment b) {
-            buf = b;
+        V4l2Buffer(MemorySegment ent ) {
+            this.ent = ent;
+            buf = v4l2_buffer.allocate(arena);
         }
 
         int dq() throws Throwable {
-            return MangledMediaAPI.v4l2_video_dq_buf(video_ent, buf);
+            return MangledMediaAPI.v4l2_video_dq_buf(ent, buf);
         }
 
         int eq() throws Throwable {
-            return MangledMediaAPI.v4l2_video_q_buf(video_ent, buf);
+            return MangledMediaAPI.v4l2_video_q_buf(ent, buf);
         }
 
         int query() throws Throwable {
-            return MangledMediaAPI.v4l2_video_query_buf(video_ent, buf);
+            return MangledMediaAPI.v4l2_video_query_buf(ent, buf);
         }
 
         private void unmap(MemorySegment s) throws Throwable {
@@ -296,8 +299,9 @@ public class AmlMediaReader implements MmapReader {
         }
 
         void map(long length, long offset) throws Throwable {
+            var dev = media_entity.fd(ent);
             addr = (MemorySegment) Mmap.mmap.invokeExact(
-                    MemorySegment.NULL, length, PROT_READ | PROT_WRITE, MAP_SHARED, videoDev, offset);
+                    MemorySegment.NULL, length, PROT_READ | PROT_WRITE, MAP_SHARED, dev, offset);
             Consumer<MemorySegment> cleanup = s -> {
                 try {
                     unmap(s);
@@ -315,7 +319,7 @@ public class AmlMediaReader implements MmapReader {
         }
 
         ByteBuffer asByteBuffer() {
-            return (mapped == null) ? ByteBuffer.allocate(0) : mapped.asByteBuffer();
+            return mapped.asByteBuffer();
         }
 
         private void setIndex(int index) {
@@ -344,8 +348,8 @@ public class AmlMediaReader implements MmapReader {
         }
     }
 
-    V4l2Buffer mapBuffer(int index) throws Throwable {
-        V4l2Buffer vbuf = new V4l2Buffer();
+    V4l2Buffer mapBuffer(MemorySegment ent, int index) throws Throwable {
+        V4l2Buffer vbuf = new V4l2Buffer(ent);
         vbuf.setIndex(index);
         vbuf.setType(MangledMediaAPI.V4L2_BUF_TYPE_VIDEO_CAPTURE());
         vbuf.setMemory(MangledMediaAPI.V4L2_MEMORY_MMAP());
@@ -361,7 +365,7 @@ public class AmlMediaReader implements MmapReader {
             out = new byte[(int) length];
         }
         vbuf.map(length, offset);
-        vbuf.eq();
+        //vbuf.eq();
         return vbuf;
     }
 
@@ -372,7 +376,7 @@ public class AmlMediaReader implements MmapReader {
 
     V4l2Buffer dqBuffer() throws Throwable {
 
-        V4l2Buffer vbuf = new V4l2Buffer();
+        V4l2Buffer vbuf = new V4l2Buffer(video_ent);
         vbuf.setType(MangledMediaAPI.V4L2_BUF_TYPE_VIDEO_CAPTURE());
         vbuf.setMemory(MangledMediaAPI.V4L2_MEMORY_MMAP());
 
@@ -388,6 +392,7 @@ public class AmlMediaReader implements MmapReader {
         return vbuf;
     }
 
+    @Override
     public byte[] read() throws Throwable {
         var buf = dqBuffer();
         int index = buf.getIndex();
@@ -410,17 +415,25 @@ public class AmlMediaReader implements MmapReader {
     public static void main(String args[]) {
         Log.setLevel(Log.VERB);
         try {
-            var a = new AmlMediaReader("/dev/media0", 3840, 2160);
-            Log.info("Should start cap now....");
-            Thread.sleep(1000);
             Path outF = Paths.get("/tmp/tst300.nv12");
             OpenOption[] options = {StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING};
-
             var outb = Files.newOutputStream(outF, options);
+
+            var a = new AmlMediaReader("/dev/media0", 1920, 1080) {
+                @Override
+                public byte[] process(byte[] frame) {
+                    try {
+                        outb.write(frame);
+                    } catch (IOException iox) {
+                        Log.error("Failed to write frame");
+                    }
+                    return frame;
+                }
+            };
+            Log.info("Should start cap now....");
             a.startCap();
-            for (int i = 0; i < 100; i++) {
+            for (int i = 0; i < 30; i++) {
                 var frame = a.read();
-                outb.write(frame);
                 Log.info("frame written " + i);
             }
             a.stop();
