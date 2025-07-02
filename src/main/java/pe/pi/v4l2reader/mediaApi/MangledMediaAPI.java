@@ -1,7 +1,9 @@
 package pe.pi.v4l2reader.mediaApi;
 
 import java.lang.foreign.FunctionDescriptor;
+import java.lang.foreign.GroupLayout;
 import java.lang.foreign.Linker;
+import java.lang.foreign.MemoryLayout;
 import java.lang.foreign.MemorySegment;
 import java.lang.invoke.MethodHandle;
 import java.util.Map;
@@ -34,7 +36,7 @@ public class MangledMediaAPI extends mediaAPI {
             Map.entry("lens_set_entity", "_Z15lens_set_entityP10lensConfigP12media_entity"),
             Map.entry("cmos_set_sensor_entity", "_Z22cmos_set_sensor_entityP12sensorConfigP12media_entityi"),
             Map.entry("cmos_sensor_control_cb", "_Z22cmos_sensor_control_cbP12sensorConfigP21ALG_SENSOR_EXP_FUNC_S"),
-            Map.entry("cmos_get_sensor_calibration","_Z27cmos_get_sensor_calibrationP12sensorConfigP12media_entityP17aisp_calib_info_s")
+            Map.entry("cmos_get_sensor_calibration", "_Z27cmos_get_sensor_calibrationP12sensorConfigP12media_entityP17aisp_calib_info_s")
     );
 
     static MemorySegment findOrThrow(String symbol) {
@@ -187,5 +189,26 @@ public class MangledMediaAPI extends mediaAPI {
             throw new AssertionError("should not reach here", ex$);
         }
     }
+
+    /* hand rolled stuff */
+    public static final GroupLayout aml_isp_csc_attrLayout = MemoryLayout.structLayout(
+            MangledMediaAPI.C_INT.withName("csc_enable"),
+            MangledMediaAPI.C_INT.withName("glb_brightness"),
+            MangledMediaAPI.C_INT.withName("glb_contrast"),
+            MangledMediaAPI.C_INT.withName("glb_sharpness"),
+            MangledMediaAPI.C_INT.withName("glb_sturation"),
+            MangledMediaAPI.C_INT.withName("glb_hue"),
+            MangledMediaAPI.C_INT.withName("glb_vibrance")
+    ).withName("aml_isp_csc_attr");
+
+    public static final GroupLayout aisp_api_type_tLayout = MemoryLayout.structLayout(
+            mediaAPI.C_CHAR.withName("direction"),
+            mediaAPI.C_CHAR.withName("cmdType"),
+            mediaAPI.C_CHAR.withName("cmdId"),
+            mediaAPI.C_CHAR.withName("pad"),
+            mediaAPI.C_INT.withName("value"),
+            mediaAPI.C_POINTER.withName("pData"),
+            mediaAPI.C_POINTER.withName("pRetValue")
+    ).withName("aisp_api_type_t");
 
 }

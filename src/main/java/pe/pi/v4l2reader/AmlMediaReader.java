@@ -9,10 +9,13 @@ import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
+import java.lang.foreign.MemoryLayout;
+import java.lang.foreign.MemoryLayout.PathElement;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.SymbolLookup;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandle;
+import java.lang.invoke.VarHandle;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.OpenOption;
@@ -20,6 +23,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.function.Consumer;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import static pe.pi.v4l2reader.V4l2Ioctls.MAP_SHARED;
 import static pe.pi.v4l2reader.V4l2Ioctls.PROT_READ;
 import static pe.pi.v4l2reader.V4l2Ioctls.PROT_WRITE;
@@ -53,6 +58,7 @@ public class AmlMediaReader implements MmapReader {
     private final MethodHandle aisp_enable;
     private final MethodHandle alg2User;
     private final MethodHandle alg2Kernel;
+    private final MethodHandle algFwInterface;
 
     public AmlMediaReader(String dev, int w, int h) throws Throwable {
         width = w;
@@ -85,11 +91,91 @@ public class AmlMediaReader implements MmapReader {
                         ValueLayout.ADDRESS // void* alg_init
                 )
         );
+        algFwInterface = linker.downcallHandle(
+                ispLib.find("aisp_fw_interface").orElseThrow(),
+                FunctionDescriptor.ofVoid(
+                        ValueLayout.JAVA_INT, // uint32_t ctx_id (mapped to int)
+                        ValueLayout.ADDRESS // void* api_type
+                )
+        );
         if (Files.isReadable(path)) {
             setup();
 
         } else {
             Log.error("cant read " + path);
+        }
+
+    }
+
+    void printSevenInt(MemorySegment ints) {
+        var bb = ints.asByteBuffer();
+        for (int i = 0; i < 7; i++) {
+            Log.info("int[" + i + "] = " + bb.getInt());
+        }
+    }
+
+    void setSevenInt(MemorySegment ints, Integer brightness, Integer contrast, Integer sharpness, Integer saturation, Integer hue, Integer vibrance) {
+        var bb = ints.asByteBuffer();
+        bb.putInt(1);
+        bb.putInt(brightness);
+        bb.putInt(contrast);
+        bb.putInt(sharpness);
+        bb.putInt(saturation);
+        bb.putInt(hue);
+        bb.putInt(vibrance);
+    }
+
+    public void setCsC(boolean enable, Integer brightness, Integer contrast, Integer sharpness, Integer saturation, Integer hue, Integer vibrance) {
+
+        MemorySegment attr = arena.allocate(MangledMediaAPI.aml_isp_csc_attrLayout);
+        MemorySegment rattr = arena.allocate(MangledMediaAPI.aml_isp_csc_attrLayout);
+
+        MemorySegment cmd = arena.allocate(MangledMediaAPI.aisp_api_type_tLayout);
+
+        VarHandle direction = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("direction"));
+        VarHandle cmdType = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdType"));
+        VarHandle cmdId = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdId"));
+        VarHandle value = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("value"));
+        VarHandle pData = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("pData"));
+        VarHandle pRetValue = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("pRetValue"));
+        direction.set(cmd, 0L, (byte) 0x1); //get
+        cmdId.set(cmd, 0L, (byte) 0x1); // AML_MBI_ISP_CSCAttr
+        pData.set(cmd, 0L, attr);
+        pRetValue.set(cmd, 0L, rattr);
+
+        setSevenInt(attr,Integer.MAX_VALUE,Integer.MAX_VALUE,Integer.MAX_VALUE,Integer.MAX_VALUE,Integer.MAX_VALUE,Integer.MAX_VALUE);
+        try {
+            Log.info("trying to get csc ");
+
+            algFwInterface.invokeExact(0, cmd);
+            Log.info("csc attr values are :");
+
+            printSevenInt(attr);
+            Log.info("csc rattr values are :");
+
+            printSevenInt(rattr);
+
+            direction.set(cmd, 0L, (byte) 0x0); //set
+
+            Log.info("trying to set csc ");
+
+            algFwInterface.invokeExact(0, cmd);
+            Log.info("csc attr values are :");
+
+            printSevenInt(attr);
+            Log.info("csc rattr values are :");
+
+            printSevenInt(rattr);
+
+            /*
+            api_type->u8Direction = AML_CMD_SET;
+            api_type->u8CmdType = 0;// not used
+            api_type->u8CmdId = AML_MBI_ISP_ExposureAttr;
+            api_type->u32Value = 0;// not used
+            api_type->pData = (uint32_t *)&data;
+             */
+        } catch (Throwable ex) {
+            Log.error("algFwInterface threw exception " + ex.toString());
         }
 
     }
@@ -155,7 +241,7 @@ public class AmlMediaReader implements MmapReader {
         Log.info(" v4l2_video_get_format ok " + fd);
 
         var v4l2_rb = v4l2_requestbuffers.allocate(arena);
-        v4l2_requestbuffers.count(v4l2_rb, 5);
+        v4l2_requestbuffers.count(v4l2_rb, 3);
         v4l2_requestbuffers.type(v4l2_rb, MangledMediaAPI.V4L2_BUF_TYPE_VIDEO_CAPTURE());
         v4l2_requestbuffers.memory(v4l2_rb, MangledMediaAPI.V4L2_MEMORY_MMAP());
         rc = MangledMediaAPI.v4l2_video_req_bufs(video_ent, v4l2_rb);
@@ -169,7 +255,7 @@ public class AmlMediaReader implements MmapReader {
 
         var video_param = media_stream.video_param(v4l2_media_stream);
         var video_ent0 = media_stream.video_ent0(v4l2_media_stream);
-        v4l2_rb.fill((byte)0);
+        v4l2_rb.fill((byte) 0);
         v4l2_requestbuffers.count(v4l2_rb, 1);
         v4l2_requestbuffers.type(v4l2_rb, MangledMediaAPI.V4L2_BUF_TYPE_VIDEO_CAPTURE());
         v4l2_requestbuffers.memory(v4l2_rb, MangledMediaAPI.V4L2_MEMORY_MMAP());
@@ -180,12 +266,11 @@ public class AmlMediaReader implements MmapReader {
         }
         buffers = new V4l2Buffer[bcount];
         for (int i = 0; i < bcount; i++) {
-            buffers[i] = mapBuffer(video_ent,i);
+            buffers[i] = mapBuffer(video_ent, i);
             Log.verb("buffer[" + i + "] = " + buffers[i]);
         }
-        
-        
-        V4l2Buffer paramBuffer = mapBuffer(video_param,0);
+
+        V4l2Buffer paramBuffer = mapBuffer(video_param, 0);
         paramBuffer.eq();
         MemorySegment sensor_ent = media_stream.sensor_ent(v4l2_media_stream);
 
@@ -214,20 +299,19 @@ public class AmlMediaReader implements MmapReader {
 
         Log.info("run alg2User ");
 
-
         MemorySegment alg_init = arena.allocate(256 * 1024);
         alg_init.fill((byte) 0);
-  
+
         alg2User.invokeExact(ctx, alg_init);
         Log.info("run alg2Kernel");
         alg2Kernel.invokeExact(ctx, paramBuffer.mapped);
-        
-	Log.info("enqueue video buffers");
+
+        Log.info("enqueue video buffers");
 
         for (var buf : buffers) {
             buf.eq();
         }
-	Log.info("Start video_param");
+        Log.info("Start video_param");
         rc = MangledMediaAPI.v4l2_video_stream_on(video_param, MangledMediaAPI.V4L2_BUF_TYPE_VIDEO_CAPTURE());
         if (rc < 0) {
             Log.error("cant start param stream  ");
@@ -263,7 +347,7 @@ public class AmlMediaReader implements MmapReader {
         MemorySegment addr;
         MemorySegment ent;
 
-        V4l2Buffer(MemorySegment ent ) {
+        V4l2Buffer(MemorySegment ent) {
             this.ent = ent;
             buf = v4l2_buffer.allocate(arena);
         }
@@ -434,6 +518,9 @@ public class AmlMediaReader implements MmapReader {
             a.startCap();
             for (int i = 0; i < 30; i++) {
                 var frame = a.read();
+                if (i == 15) {
+                    a.setCsC(true, null, null, null, null, null, null);
+                }
                 Log.info("frame written " + i);
             }
             a.stop();
