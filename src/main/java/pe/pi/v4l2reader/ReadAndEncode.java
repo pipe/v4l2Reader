@@ -1,6 +1,7 @@
 package pe.pi.v4l2reader;
 
 import com.phono.srtplight.Log;
+import java.nio.ByteBuffer;
 import pe.pi.amlh264enc.Encoder;
 
 /**
@@ -24,9 +25,9 @@ public class ReadAndEncode {
 
             MmapRead reader = new MmapRead(adev) {
                 @Override
-                public byte[] process(byte [] frame) {
-                    var h = encoder.encode(out);
-                    Log.debug("encoded to h264 " + h.length);
+                public ByteBuffer process(ByteBuffer frame) {
+                    var h = encoder.encode(frame);
+                    Log.debug("encoded to h264 " + h.remaining());
                     return h;
                 }
             };

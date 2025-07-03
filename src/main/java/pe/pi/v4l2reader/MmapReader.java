@@ -4,6 +4,8 @@
  */
 package pe.pi.v4l2reader;
 
+import java.nio.ByteBuffer;
+
 /**
  *
  * @author thp
@@ -12,7 +14,7 @@ public interface MmapReader {
 
     public void startCap() throws Throwable ;
 
-    public byte[] read() throws Throwable;
+    public ByteBuffer read() throws Throwable;
 
     public void stop() throws Throwable;
     

@@ -23,7 +23,6 @@ public class MmapRead extends V4l2Ioctls implements MmapReader {
     java.nio.file.Path path;
 
     V4l2Buffer buffers[];
-    byte[] out;
     int videoDev = 0;
     int width;
     int height;
@@ -45,21 +44,19 @@ public class MmapRead extends V4l2Ioctls implements MmapReader {
         }
     }
 
-    public byte[] process(byte[] frame) {
+    public ByteBuffer process(ByteBuffer frame) {
         return frame;
     }
 
     @Override
-    public byte[] read() throws Throwable {
+    public ByteBuffer read() throws Throwable {
+        ByteBuffer ret = null;
         var buf = dqBuffer();
         int index = buf.getInt("index");
-        byte[] ret = out;
         Log.verb("bb index is " + index);
         if (index < buffers.length) {
             ByteBuffer fb = buffers[index].asByteBuffer();
-            fb.get(0, out);
-            Log.verb("sucked into our buffer");
-            ret = process(out);
+            ret = process(fb);
         }
         enqueueBuffer(buf);
         return ret;
@@ -271,9 +268,6 @@ public class MmapRead extends V4l2Ioctls implements MmapReader {
         int length = vbuf.getInt("length");
         int rindex = vbuf.getInt("index");
         Log.verb("index " + index + " rindex " + rindex + " offset = " + offset + " length= " + length);
-        if (out == null) {
-            out = new byte[length];
-        }
         vbuf.map(length, offset);
         enqueueBuffer(vbuf);
         return vbuf;
