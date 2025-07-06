@@ -54,10 +54,10 @@ public class MmapRead extends V4l2Ioctls implements MmapReader {
         var buf = dqBuffer();
         int index = buf.getInt("index");
         Log.verb("bb index is " + index);
-        if (index < buffers.length) {
-            ByteBuffer fb = buffers[index].asByteBuffer();
-            ret = process(fb);
-        }
+
+        ByteBuffer fb = buf.asByteBuffer();
+        ret = process(fb);
+
         enqueueBuffer(buf);
         return ret;
     }
@@ -145,7 +145,7 @@ public class MmapRead extends V4l2Ioctls implements MmapReader {
         MemorySegment req = arena.allocate(v4l2_requestbuffers);
 
         // Set values
-        req.set(JAVA_INT, v4l2_requestbuffers.byteOffset(groupElement("count")), 4); // request 4 buffers
+        req.set(JAVA_INT, v4l2_requestbuffers.byteOffset(groupElement("count")), 5); // request 4 buffers
         req.set(JAVA_INT, v4l2_requestbuffers.byteOffset(groupElement("type")), V4L2_BUF_TYPE_VIDEO_CAPTURE);
         req.set(JAVA_INT, v4l2_requestbuffers.byteOffset(groupElement("memory")), V4L2_MEMORY_MMAP);
         req.set(JAVA_INT, v4l2_requestbuffers.byteOffset(groupElement("capabilities")), 0);
@@ -225,9 +225,9 @@ public class MmapRead extends V4l2Ioctls implements MmapReader {
                     Log.error("cant unmap");
                 }
             };
-            Log.info("mapped to "+addr.address());
+            Log.info("mapped to " + addr.address());
             mapped = addr.reinterpret(length, arena, cleanup);
-            Log.info("reinterp to "+mapped.address());
+            Log.info("reinterp to " + mapped.address());
 
         }
 
@@ -236,10 +236,11 @@ public class MmapRead extends V4l2Ioctls implements MmapReader {
         }
     }
 
+    V4l2Buffer scratchbuf = new V4l2Buffer();
+
     V4l2Buffer dqBuffer() throws Throwable {
 
-        V4l2Buffer vbuf = new V4l2Buffer();
-        //MemorySegment buf = arena.allocate(v4l2_buffer);
+        V4l2Buffer vbuf = scratchbuf;
         vbuf.set("type", V4L2_BUF_TYPE_VIDEO_CAPTURE);
         vbuf.set("memory", V4L2_MEMORY_MMAP);
 
@@ -252,7 +253,8 @@ public class MmapRead extends V4l2Ioctls implements MmapReader {
         int index = vbuf.getInt("index");
 
         Log.verb("DQ'd index " + index + " offset = " + offset + " length= " + length);
-        return vbuf;
+
+        return buffers[index];
     }
 
     V4l2Buffer mapBuffer(int fd, Arena arena, SymbolLookup libc, int index) throws Throwable {
