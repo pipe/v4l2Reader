@@ -57,12 +57,13 @@ public class AmlMediaReader implements MmapReader {
     private final MethodHandle alg2Kernel;
     private final MethodHandle algFwInterface;
     private MediaEntity vent;
+    private MediaEntity pent;
 
     public AmlMediaReader(String dev, int w, int h) throws Throwable {
         width = w;
         height = h;
         path = java.nio.file.Paths.get(dev);
-        arena = Arena.ofConfined();
+        arena = Arena.global();
         Linker linker = Linker.nativeLinker();
 
         var ispLib = SymbolLookup.libraryLookup("libispaml.so", arena);
@@ -265,7 +266,7 @@ public class AmlMediaReader implements MmapReader {
             return -1;
         }
 
-        MediaEntity pent = new MediaEntity(video_param, 1);
+        pent = new MediaEntity(video_param, 1);
         pent.eqBuffers();
         
         
@@ -286,7 +287,7 @@ public class AmlMediaReader implements MmapReader {
         }
 
         Log.info("calibrating the camera and enabling the isp");
-        MemorySegment calib = arena.allocate(1216); // Yeah, I know this is horrible - but, look at the nested enumed struct and just get the compiler to do a sizeof!
+        MemorySegment calib = arena.allocate(1216*2); // Yeah, I know this is horrible - but, look at the nested enumed struct and just get the compiler to do a sizeof then double it!
         MangledMediaAPI.cmos_set_sensor_entity(sensorCfg, sensor_ent, 0);
         MangledMediaAPI.cmos_sensor_control_cb(sensorCfg, stSnsExp);
         MangledMediaAPI.cmos_get_sensor_calibration(sensorCfg, sensor_ent, calib);
