@@ -22,6 +22,10 @@ import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.util.EnumMap;
+import java.util.HashMap;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.Consumer;
 import static pe.pi.v4l2reader.V4l2Ioctls.MAP_SHARED;
 import static pe.pi.v4l2reader.V4l2Ioctls.PROT_READ;
@@ -58,12 +62,14 @@ public class AmlMediaReader implements MmapReader {
     private final MethodHandle algFwInterface;
     private MediaEntity vent;
     private MediaEntity pent;
+    private Queue<Runnable> v4lQueue;
 
     public AmlMediaReader(String dev, int w, int h) throws Throwable {
         width = w;
         height = h;
         path = java.nio.file.Paths.get(dev);
         arena = Arena.global();
+        v4lQueue = new ConcurrentLinkedQueue();
         Linker linker = Linker.nativeLinker();
 
         var ispLib = SymbolLookup.libraryLookup("libispaml.so", arena);
@@ -106,25 +112,24 @@ public class AmlMediaReader implements MmapReader {
 
     }
 
-    void printSevenInt(MemorySegment ints) {
-        var bb = ints.asByteBuffer();
-        for (int i = 0; i < 7; i++) {
-            Log.info("int[" + i + "] = " + bb.getInt());
-        }
+    enum CsCNames {
+        unused, brightness, contrast, sharpness, saturation, hue, vibrance
+    };
+    final static HashMap<Integer,CsCNames> CsCNameMap = new HashMap();
+
+    static {
+        CsCNameMap.put(CsCNames.unused.ordinal(), CsCNames.unused);
+        CsCNameMap.put(CsCNames.brightness.ordinal(), CsCNames.brightness);
+        CsCNameMap.put(CsCNames.contrast.ordinal(), CsCNames.contrast);
+        CsCNameMap.put(CsCNames.sharpness.ordinal(), CsCNames.sharpness);
+        CsCNameMap.put(CsCNames.saturation.ordinal(), CsCNames.saturation);
+        CsCNameMap.put(CsCNames.hue.ordinal(), CsCNames.hue);
+        CsCNameMap.put(CsCNames.vibrance.ordinal(), CsCNames.vibrance);
     }
 
-    void setSevenInt(MemorySegment ints, Integer brightness, Integer contrast, Integer sharpness, Integer saturation, Integer hue, Integer vibrance) {
-        var bb = ints.asByteBuffer();
-        bb.putInt(1);
-        bb.putInt(brightness);
-        bb.putInt(contrast);
-        bb.putInt(sharpness);
-        bb.putInt(saturation);
-        bb.putInt(hue);
-        bb.putInt(vibrance);
-    }
+    public Integer[] getCsC() {
 
-    public void setCsC(boolean enable, Integer brightness, Integer contrast, Integer sharpness, Integer saturation, Integer hue, Integer vibrance) {
+        Integer[] ret = new Integer[7];
 
         MemorySegment attr = arena.allocate(MangledMediaAPI.aml_isp_csc_attrLayout);
         MemorySegment rattr = arena.allocate(MangledMediaAPI.aml_isp_csc_attrLayout);
@@ -141,30 +146,66 @@ public class AmlMediaReader implements MmapReader {
         cmdId.set(cmd, 0L, (byte) 0x1); // AML_MBI_ISP_CSCAttr
         pData.set(cmd, 0L, attr);
         pRetValue.set(cmd, 0L, rattr);
-
-        setSevenInt(attr, Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE);
         try {
             Log.info("trying to get csc ");
 
             algFwInterface.invokeExact(0, cmd);
             Log.info("csc attr values are :");
+            var bb = attr.asByteBuffer();
+            for (int i = 0; i < 7; i++) {
+                ret[i] = bb.getInt();
+                Log.info(CsCNameMap.get(i) + " = " + ret[i]);
+            }
 
-            printSevenInt(attr);
-            Log.info("csc rattr values are :");
+        } catch (Throwable ex) {
+            Log.error("algFwInterface threw exception " + ex.toString());
+        }
+        return ret;
+    }
 
-            printSevenInt(rattr);
+    public void setCsC(Integer[] csc) {
+        Runnable task = new Runnable(){
+            Integer v[] = csc;
 
-            direction.set(cmd, 0L, (byte) 0x0); //set
+            @Override
+            public void run() {
+                setCsCActual(v);
+            }  
+        };
+        v4lQueue.add(task);
+    }
 
+    public void setCsCActual(Integer[] csc) {
+
+        MemorySegment attr = arena.allocate(MangledMediaAPI.aml_isp_csc_attrLayout);
+        MemorySegment rattr = arena.allocate(MangledMediaAPI.aml_isp_csc_attrLayout);
+
+        MemorySegment cmd = arena.allocate(MangledMediaAPI.aisp_api_type_tLayout);
+
+        VarHandle direction = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("direction"));
+        VarHandle cmdType = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdType"));
+        VarHandle cmdId = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdId"));
+        VarHandle value = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("value"));
+        VarHandle pData = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("pData"));
+        VarHandle pRetValue = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("pRetValue"));
+        direction.set(cmd, 0L, (byte) 0x1); //get
+        cmdId.set(cmd, 0L, (byte) 0x1); // AML_MBI_ISP_CSCAttr
+        pData.set(cmd, 0L, attr);
+        pRetValue.set(cmd, 0L, rattr);
+        direction.set(cmd, 0L, (byte) 0x0); //set
+        Log.info("new csc attr values are :");
+
+        if (csc.length == 7) {
+            for (int i = 0; i < 7; i++) {
+                Log.info(CsCNameMap.get(i) + " = " + csc[i]);
+                attr.asByteBuffer().putInt(csc[i]);
+            }
+        }
+        try {
             Log.info("trying to set csc ");
 
+            //printSevenInt(attr);
             algFwInterface.invokeExact(0, cmd);
-            Log.info("csc attr values are :");
-
-            printSevenInt(attr);
-            Log.info("csc rattr values are :");
-
-            printSevenInt(rattr);
 
             /*
             api_type->u8Direction = AML_CMD_SET;
@@ -268,8 +309,7 @@ public class AmlMediaReader implements MmapReader {
 
         pent = new MediaEntity(video_param, 1);
         pent.eqBuffers();
-        
-        
+
         MemorySegment sensor_ent = media_stream.sensor_ent(v4l2_media_stream);
 
         videoDev = media_entity.fd(video_ent0);
@@ -287,7 +327,7 @@ public class AmlMediaReader implements MmapReader {
         }
 
         Log.info("calibrating the camera and enabling the isp");
-        MemorySegment calib = arena.allocate(1216*2); // Yeah, I know this is horrible - but, look at the nested enumed struct and just get the compiler to do a sizeof then double it!
+        MemorySegment calib = arena.allocate(1216 * 2); // Yeah, I know this is horrible - but, look at the nested enumed struct and just get the compiler to do a sizeof then double it!
         MangledMediaAPI.cmos_set_sensor_entity(sensorCfg, sensor_ent, 0);
         MangledMediaAPI.cmos_sensor_control_cb(sensorCfg, stSnsExp);
         MangledMediaAPI.cmos_get_sensor_calibration(sensorCfg, sensor_ent, calib);
@@ -337,6 +377,74 @@ public class AmlMediaReader implements MmapReader {
         }
     }
 
+    public V4l2Substitute getV4l2Sub() {
+        return new V4l2Substitute() {
+
+            @Override
+            public void setBrightness(Long v) {
+                Integer[] o = getCsC();
+                o[CsCNames.brightness.ordinal()] = v.intValue();
+                setCsC(o);
+            }
+
+            @Override
+            public void setHue(Long v) {
+                Integer[] o = getCsC();
+                o[CsCNames.hue.ordinal()] = v.intValue();
+                setCsC(o);
+            }
+
+            @Override
+            public void setContrast(Long v) {
+                Integer[] o = getCsC();
+                o[CsCNames.contrast.ordinal()] = v.intValue();
+                setCsC(o);
+            }
+
+            @Override
+            public void setSaturation(Long v) {
+                Integer[] o = getCsC();
+                o[CsCNames.saturation.ordinal()] = v.intValue();
+                setCsC(o);
+            }
+
+            @Override
+            public void setExposure(Long v) {
+                throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
+            }
+
+            @Override
+            public Long getBrightness() {
+                Integer[] o = getCsC();
+                return Long.valueOf(o[CsCNames.brightness.ordinal()]);
+            }
+
+            @Override
+            public Long getHue() {
+                Integer[] o = getCsC();
+                return Long.valueOf(o[CsCNames.hue.ordinal()]);
+            }
+
+            @Override
+            public Long getContrast() {
+                Integer[] o = getCsC();
+                return Long.valueOf(o[CsCNames.contrast.ordinal()]);
+            }
+
+            @Override
+            public Long getExposure() {
+                throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
+            }
+
+            @Override
+            public Long getSaturation() {
+                Integer[] o = getCsC();
+                return Long.valueOf(o[CsCNames.saturation.ordinal()]);
+            }
+
+        };
+    }
+
     class V4l2Buffer {
 
         MediaEntity ment;
@@ -345,10 +453,10 @@ public class AmlMediaReader implements MmapReader {
         long moffset;
         long mlength;
 
-        V4l2Buffer(MediaEntity m){
-            ment =m;
+        V4l2Buffer(MediaEntity m) {
+            ment = m;
         }
-        
+
         private void unmap(MemorySegment s) throws Throwable {
             if (s == mapped) {
                 int res;
@@ -485,11 +593,14 @@ public class AmlMediaReader implements MmapReader {
         Log.verb("mapped size " + mbuf.mapped.byteSize() + " address " + mbuf.mapped.address());
         ByteBuffer fb = mbuf.asByteBuffer();
         fb.position(0);
-        fb.limit((int)mbuf.mapped.byteSize());
-        Log.debug("grabbed our buffer, remaining is " +fb.remaining());
-        var  ret = process(fb);
-        Log.debug("processed buffer to " +ret.remaining());
-
+        fb.limit((int) mbuf.mapped.byteSize());
+        Log.debug("grabbed our buffer, remaining is " + fb.remaining());
+        var ret = process(fb);
+        Log.debug("processed buffer to " + ret.remaining());
+        Runnable task = v4lQueue.poll();
+        if (task != null){
+            task.run();
+        }
         // this is sorta questionable..... how do we know it is the same buffer (index) still?
         vent.eqBuffer();
         return ret;
@@ -517,7 +628,7 @@ public class AmlMediaReader implements MmapReader {
                 for (int i = 0; i < 30; i++) {
                     var frame = a.read();
                     if (i == 15) {
-                        a.setCsC(true, null, null, null, null, null, null);
+                        //a.setCsC(true, null, null, null, null, null, null);
                     }
                     Log.info("frame written " + frame.remaining());
                 }
