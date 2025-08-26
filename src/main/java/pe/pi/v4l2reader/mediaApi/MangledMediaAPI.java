@@ -36,6 +36,8 @@ public class MangledMediaAPI extends mediaAPI {
             Map.entry("lens_set_entity", "_Z15lens_set_entityP10lensConfigP12media_entity"),
             Map.entry("cmos_set_sensor_entity", "_Z22cmos_set_sensor_entityP12sensorConfigP12media_entityi"),
             Map.entry("cmos_sensor_control_cb", "_Z22cmos_sensor_control_cbP12sensorConfigP21ALG_SENSOR_EXP_FUNC_S"),
+            Map.entry("setConfigFormat","_Z15setConfigFormatP12media_streamP20stream_configuration"),
+            Map.entry("setDataFormat", "_Z13setDataFormatP12media_streamP20stream_configuration"),
             Map.entry("cmos_get_sensor_calibration", "_Z27cmos_get_sensor_calibrationP12sensorConfigP12media_entityP17aisp_calib_info_s")
     );
 

@@ -10393,7 +10393,7 @@ public class mediaAPI_2 extends mediaAPI_3 {
             mediaAPI.C_POINTER
         );
 
-        public static final MemorySegment ADDR = mediaAPI.findOrThrow("setDataFormat");
+        public static final MemorySegment ADDR = MangledMediaAPI.findOrThrow("setDataFormat");
 
         public static final MethodHandle HANDLE = Linker.nativeLinker().downcallHandle(ADDR, DESC);
     }
@@ -10452,7 +10452,7 @@ public class mediaAPI_2 extends mediaAPI_3 {
             mediaAPI.C_POINTER
         );
 
-        public static final MemorySegment ADDR = mediaAPI.findOrThrow("setConfigFormat");
+        public static final MemorySegment ADDR = MangledMediaAPI.findOrThrow("setConfigFormat");
 
         public static final MethodHandle HANDLE = Linker.nativeLinker().downcallHandle(ADDR, DESC);
     }
