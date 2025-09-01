@@ -781,9 +781,7 @@ public class AmlMediaReader implements MmapReader {
 
                         Log.verb("stats mapped size " + sbuf.mapped.byteSize() + " address " + sbuf.mapped.address());
                         int ctx = 0;
-
                         alg2User.invokeExact(ctx, sbuf.mapped);
-
                         doATask();
                         sleepOrNot(100);
                         sent.eqBuffer();
