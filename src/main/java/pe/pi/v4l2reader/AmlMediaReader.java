@@ -30,8 +30,10 @@ import java.util.function.Consumer;
 import static pe.pi.v4l2reader.V4l2Ioctls.MAP_SHARED;
 import static pe.pi.v4l2reader.V4l2Ioctls.PROT_READ;
 import static pe.pi.v4l2reader.V4l2Ioctls.PROT_WRITE;
+//import pe.pi.v4l2reader.mediaApi.ALG_SENSOR_DEFAULT_S;
 import pe.pi.v4l2reader.mediaApi.AML_ALG_CTX_S;
 import pe.pi.v4l2reader.mediaApi.MangledMediaAPI;
+import static pe.pi.v4l2reader.mediaApi.MangledMediaAPI.segToString;
 import pe.pi.v4l2reader.mediaApi.aml_format;
 import pe.pi.v4l2reader.mediaApi.media_entity;
 import pe.pi.v4l2reader.mediaApi.media_stream;
@@ -47,9 +49,9 @@ import pe.pi.v4l2reader.mediaApi.v4l2_requestbuffers;
  * @author thp
  */
 public class AmlMediaReader implements MmapReader {
-
+    
     java.nio.file.Path path;
-
+    
     byte[] out;
     int videoDev = 0;
     int width;
@@ -64,6 +66,8 @@ public class AmlMediaReader implements MmapReader {
     private MediaEntity pent;
     private Queue<Runnable> v4lQueue;
     private MediaEntity sent;
+    //  private final MethodHandle fps_set_imx678;
+    private String sensorname;
 
     public AmlMediaReader(String dev, int w, int h) throws Throwable {
         width = w;
@@ -72,9 +76,9 @@ public class AmlMediaReader implements MmapReader {
         arena = Arena.global();
         v4lQueue = new ConcurrentLinkedQueue();
         Linker linker = Linker.nativeLinker();
-
+        
         var ispLib = SymbolLookup.libraryLookup("libispaml.so", arena);
-
+        
         aisp_enable = linker.downcallHandle(
                 ispLib.find("aisp_enable").orElseThrow(),
                 FunctionDescriptor.ofVoid(
@@ -104,20 +108,87 @@ public class AmlMediaReader implements MmapReader {
                         ValueLayout.ADDRESS // void* api_type
                 )
         );
+        /*
+        var camLib = SymbolLookup.libraryLookup("libtuning.so", arena);
+        fps_set_imx678 = linker.downcallHandle(
+                camLib.find("_Z19cmos_fps_set_imx678ifP20ALG_SENSOR_DEFAULT_S").orElseThrow(),
+                FunctionDescriptor.ofVoid(
+                        ValueLayout.JAVA_INT, // int ViPipe,  
+                        ValueLayout.JAVA_FLOAT, // float f32Fps,
+                        ValueLayout.ADDRESS // ALG_SENSOR_DEFAULT_S *pstAeSnsDft
+                )
+        );
+         */
+        
         if (Files.isReadable(path)) {
             setup();
-
+            
         } else {
             Log.error("cant read " + path);
         }
-
+        
     }
-
+    
+    private void printStreamNames(MemorySegment mediaS) {
+        /*
+         *     char media_dev_name[64];
+ *     char lens_ent_name[32];
+ *     char sensor_ent_name[32];
+ *     char csiphy_ent_name[32];
+ *     char adap_ent_name[32];
+ *     char isp_ent_name[32];
+ *     char video_ent_name0[32];
+ *     char video_ent_name1[32];
+ *     char video_ent_name2[32];
+ *     char video_ent_name3[32];
+ *     char video_stats_name[32];
+ *     char video_param_name[32];
+         */
+        StringBuilder mess = new StringBuilder();
+        mess.append("\tmedia_dev_name ").append(segToString(media_stream.media_dev_name(mediaS)));
+        mess.append("\n\tlens_ent_name ").append(segToString(media_stream.lens_ent_name(mediaS)));
+        mess.append("\n\tsensor_ent_name ").append(segToString(media_stream.sensor_ent_name(mediaS)));
+        mess.append("\n\tcsiphy_ent_name ").append(segToString(media_stream.csiphy_ent_name(mediaS)));
+        mess.append("\n\tadap_ent_name ").append(segToString(media_stream.adap_ent_name(mediaS)));
+        mess.append("\n\tisp_ent_name ").append(segToString(media_stream.isp_ent_name(mediaS)));
+        mess.append("\n\tvideo_ent_name0 ").append(segToString(media_stream.video_ent_name0(mediaS)));
+        mess.append("\n\tvideo_ent_name1 ").append(segToString(media_stream.video_ent_name1(mediaS)));
+        mess.append("\n\tvideo_ent_name2 ").append(segToString(media_stream.video_ent_name2(mediaS)));
+        mess.append("\n\tvideo_ent_name3 ").append(segToString(media_stream.video_ent_name3(mediaS)));
+        mess.append("\n\tvideo_param_name ").append(segToString(media_stream.video_param_name(mediaS)));
+        Log.info("MediaStream Names " + mess.toString());
+        
+    }
+    
+    private void printcaps(MemorySegment v4l2_cap) {
+        /*
+         * struct v4l2_capability {
+ *     __u8 driver[16];
+ *     __u8 card[32];
+ *     __u8 bus_info[32];
+ *     __u32 version;
+ *     __u32 capabilities;
+ *     __u32 device_caps;
+ *     __u32 reserved[3];
+ * }
+         */
+        String driver = segToString(v4l2_capability.driver(v4l2_cap));
+        String card = segToString(v4l2_capability.card(v4l2_cap));
+        
+        String bus_info = segToString(v4l2_capability.bus_info(v4l2_cap));
+        int version = v4l2_capability.version(v4l2_cap);
+        int capabilities = v4l2_capability.capabilities(v4l2_cap);
+        int device_caps = v4l2_capability.device_caps(v4l2_cap);
+        
+        Log.info("caps: driver=" + driver + "\tcard=" + card + "\tbus_info" + bus_info);
+        Log.info("caps: version=" + version + "\tcapabilities=" + Integer.toBinaryString(capabilities) + "\tdevice_caps=" + Integer.toBinaryString(device_caps));
+    }
+    
     enum CsCNames {
         unused, brightness, contrast, sharpness, saturation, hue, vibrance
     };
     final static HashMap<Integer, CsCNames> CsCNameMap = new HashMap();
-
+    
     static {
         CsCNameMap.put(CsCNames.unused.ordinal(), CsCNames.unused);
         CsCNameMap.put(CsCNames.brightness.ordinal(), CsCNames.brightness);
@@ -127,16 +198,16 @@ public class AmlMediaReader implements MmapReader {
         CsCNameMap.put(CsCNames.hue.ordinal(), CsCNames.hue);
         CsCNameMap.put(CsCNames.vibrance.ordinal(), CsCNames.vibrance);
     }
-
+    
     Integer[] getCsC() {
-
+        
         Integer[] ret = new Integer[7];
-
+        
         MemorySegment attr = arena.allocate(MangledMediaAPI.aml_isp_csc_attrLayout);
         MemorySegment rattr = arena.allocate(MangledMediaAPI.aml_isp_csc_attrLayout);
-
+        
         MemorySegment cmd = arena.allocate(MangledMediaAPI.aisp_api_type_tLayout);
-
+        
         VarHandle direction = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("direction"));
         VarHandle cmdType = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdType"));
         VarHandle cmdId = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdId"));
@@ -149,7 +220,7 @@ public class AmlMediaReader implements MmapReader {
         pRetValue.set(cmd, 0L, rattr);
         try {
             Log.info("trying to get csc ");
-
+            
             algFwInterface.invokeExact(0, cmd);
             Log.info("csc attr values are :");
             var bb = attr.asByteBuffer().order(ByteOrder.nativeOrder());
@@ -157,17 +228,17 @@ public class AmlMediaReader implements MmapReader {
                 ret[i] = bb.getInt();
                 Log.info(CsCNameMap.get(i) + " = " + ret[i]);
             }
-
+            
         } catch (Throwable ex) {
             Log.error("algFwInterface threw exception " + ex.toString());
         }
         return ret;
     }
-
+    
     void setCsC(Integer[] csc) {
         Runnable task = new Runnable() {
             Integer v[] = csc;
-
+            
             @Override
             public void run() {
                 setCsCActual(v);
@@ -175,26 +246,26 @@ public class AmlMediaReader implements MmapReader {
         };
         v4lQueue.add(task);
     }
-
+    
     void setExposure(Long newv) {
         Runnable task = new Runnable() {
             Long v = newv;
-
+            
             @Override
             public void run() {
                 setExposureActual(v);
             }
         };
         v4lQueue.add(task);
-
+        
     }
-
+    
     void setExposureActual(Long v) {
         MemorySegment attr = arena.allocate(MangledMediaAPI.aml_isp_csc_attrLayout);
         MemorySegment rattr = arena.allocate(MangledMediaAPI.aml_isp_csc_attrLayout);
-
+        
         MemorySegment cmd = arena.allocate(MangledMediaAPI.aisp_api_type_tLayout);
-
+        
         VarHandle direction = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("direction"));
         VarHandle cmdType = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdType"));
         VarHandle cmdId = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdId"));
@@ -206,11 +277,11 @@ public class AmlMediaReader implements MmapReader {
         pData.set(cmd, 0L, attr);
         pRetValue.set(cmd, 0L, rattr);
         try {
-            Log.info("trying to get exposure settings ");
+            Log.info("trying to set exposure settings ");
 
             //printSevenInt(attr);
             algFwInterface.invokeExact(0, cmd);
-
+            
         } catch (Throwable ex) {
             Log.error("algFwInterface threw exception " + ex.toString());
         }
@@ -274,14 +345,14 @@ public class AmlMediaReader implements MmapReader {
         
          */
     }
-
+    
     public void setCsCActual(Integer[] csc) {
-
+        
         MemorySegment attr = arena.allocate(MangledMediaAPI.aml_isp_csc_attrLayout);
         MemorySegment rattr = arena.allocate(MangledMediaAPI.aml_isp_csc_attrLayout);
-
+        
         MemorySegment cmd = arena.allocate(MangledMediaAPI.aisp_api_type_tLayout);
-
+        
         VarHandle direction = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("direction"));
         VarHandle cmdType = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdType"));
         VarHandle cmdId = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdId"));
@@ -316,33 +387,55 @@ public class AmlMediaReader implements MmapReader {
         } catch (Throwable ex) {
             Log.error("algFwInterface threw exception " + ex.toString());
         }
-
+        
     }
 
+    /*
+    public void getFrameRate(MemorySegment ent, String name) {
+        int rc;
+        var frac = arena.allocate(V4l2Structs.v4l2_fract);
+        rc = MangledMediaAPI.v4l2_subdev_get_frame_interval(ent, frac);
+        if (rc < 0) {
+            Log.error(name + " v4l2_subdev_get_frame_interval failed");
+        } else {
+            var n = frac.get(JAVA_INT, V4l2Structs.v4l2_fract.byteOffset(groupElement("numerator")));
+            var d = frac.get(JAVA_INT, V4l2Structs.v4l2_fract.byteOffset(groupElement("denominator")));
+
+            Log.info(name + " v4l2_subdev_get_frame_interval ok " + n + "/" + d);
+        }
+    }
+     */
+    public String getSensorName(){
+        return sensorname;
+    }
     public int setup() throws Throwable {
         int fd = 0;
         MemorySegment devName = arena.allocateFrom(path.toString());
-
+        
         MemorySegment v4l2_media_stream = media_stream.allocate(arena);
-
+        
         var mediaDev = MangledMediaAPI.media_device_new(devName);
-
+        
         int rc = MangledMediaAPI.mediaStreamInit(v4l2_media_stream, mediaDev);
         if (rc != 0) {
             Log.error("mediaStreamInit failed");
             return -1;
         }
+        printStreamNames(v4l2_media_stream);
+        sensorname = segToString(media_stream.sensor_ent_name(v4l2_media_stream));
         var video_ent = media_stream.video_ent0(v4l2_media_stream);
         fd = media_entity.fd(video_ent);
         Log.info("Inited Media Stream video fd is " + fd);
-
+        
         var v4l2_cap = v4l2_capability.allocate(arena);
+        
         MangledMediaAPI.v4l2_video_get_capability(video_ent, v4l2_cap);
         Log.info("Got v4l2 caps for Media Stream video fd is " + fd);
-
+        printcaps(v4l2_cap);
+        
         MangledMediaAPI.media_set_wdrMode(v4l2_media_stream, 0);
         MangledMediaAPI.media_set_wdrMode(v4l2_media_stream, MangledMediaAPI.WDR_MODE_NONE());
-
+        
         var stream_config = stream_configuration.allocate(arena);
         var format = stream_configuration.format(stream_config);
         aml_format.width(format, width);
@@ -350,19 +443,19 @@ public class AmlMediaReader implements MmapReader {
         aml_format.fourcc(format, V4l2Structs.V4L2_PIX_FMT_NV12);
         aml_format.code(format, MangledMediaAPI.MEDIA_BUS_FMT_SRGGB12_1X12());
         aml_format.nplanes(format, 1);
-
+        
         var vformat = stream_configuration.vformat(stream_config);
         aml_format.width(vformat, width);
         aml_format.height(vformat, height);
         aml_format.fourcc(vformat, V4l2Structs.V4L2_PIX_FMT_NV12);
-
+        
         rc = MangledMediaAPI.mediaStreamConfig(v4l2_media_stream, stream_config);
         if (rc < 0) {
             Log.error("mediaStreamConfig failed ");
             return -1;
         }
         Log.info(" mediaStreamConfig ok " + fd);
-
+        
         var v4l2_fmt = v4l2_format.allocate(arena);
         v4l2_format.type(v4l2_fmt, MangledMediaAPI.V4L2_BUF_TYPE_VIDEO_CAPTURE());
         var fmt = v4l2_format.fmt(v4l2_fmt);
@@ -371,16 +464,16 @@ public class AmlMediaReader implements MmapReader {
         v4l2_pix_format.height(pix, height);
         v4l2_pix_format.pixelformat(pix, V4l2Structs.V4L2_PIX_FMT_NV12);
         v4l2_pix_format.field(pix, MangledMediaAPI.V4L2_FIELD_ANY());
-
+        
         rc = MangledMediaAPI.v4l2_video_get_format(video_ent, v4l2_fmt);
         if (rc < 0) {
             Log.error("v4l2_video_get_format failed ");
             return -1;
         }
         Log.info(" v4l2_video_get_format ok " + fd);
-
+        
         vent = new MediaEntity(video_ent, 4, "video");
-
+        
         var datastream_config = stream_configuration.allocate(arena);
         var dataformat = stream_configuration.format(datastream_config);
         aml_format.width(dataformat, width);
@@ -395,18 +488,23 @@ public class AmlMediaReader implements MmapReader {
 // mediaApi.h:int setDataFormat(media_stream_t *camera, stream_configuration_t *cfg);
         MangledMediaAPI.setConfigFormat(v4l2_media_stream, datastream_config);
         MangledMediaAPI.setDataFormat(v4l2_media_stream, datastream_config);
-
+        
         var video_param = media_stream.video_param(v4l2_media_stream);
         var video_ent0 = media_stream.video_ent0(v4l2_media_stream);
         var video_stats = media_stream.video_stats(v4l2_media_stream);
-
+        /*
+        getFrameRate(video_param, "video parm");
+        getFrameRate(video_ent0, "video ent0");
+        getFrameRate(video_stats, "video stats");
+         */
         pent = new MediaEntity(video_param, 1, "params");
-
+        
         sent = new MediaEntity(video_stats, 4, "stats");
-
+        
         MemorySegment sensor_ent = media_stream.sensor_ent(v4l2_media_stream);
-
+        
         videoDev = media_entity.fd(video_ent0);
+        
         MemorySegment sensorCfg = MangledMediaAPI.matchSensorConfig(v4l2_media_stream);
         MemorySegment lensCfg = MangledMediaAPI.matchLensConfig(v4l2_media_stream);
         var pstAlgCtx = AML_ALG_CTX_S.allocate(arena);
@@ -414,130 +512,176 @@ public class AmlMediaReader implements MmapReader {
         Log.debug("lens config is at " + lensCfg.address());
         if (lensCfg.address() > 0) {
             Log.debug("trying to config the lens " + lensCfg.address());
-
+            
             MemorySegment lens_ent = media_stream.lens_ent(v4l2_media_stream);
             MangledMediaAPI.lens_set_entity(lensCfg, lens_ent);
             //lens_control_cb(tparm->lensCfg, &tparm->pstAlgCtx.stLensFunc);
         }
-
+        
         Log.info("calibrating the camera and enabling the isp");
         MemorySegment calib = arena.allocate(1216 * 2); // Yeah, I know this is horrible - but, look at the nested enumed struct and just get the compiler to do a sizeof then double it!
         MangledMediaAPI.cmos_set_sensor_entity(sensorCfg, sensor_ent, 0);
         MangledMediaAPI.cmos_sensor_control_cb(sensorCfg, stSnsExp);
         MangledMediaAPI.cmos_get_sensor_calibration(sensorCfg, sensor_ent, calib);
-
         int ctx = 0;
-        aisp_enable.invokeExact(ctx, pstAlgCtx, calib);
-        Log.info("run alg2User ");
+        /*     var sdf = AML_ALG_CTX_S.stSnsDft(pstAlgCtx);
 
+        printCtxFps(sdf);
+        setCtxFps(sdf, 30);
+
+        setIspFps(ctx, 30.0f,sdf);
+        
+         */
+        Log.info("about to run aisp_enable ");
+        
+        aisp_enable.invokeExact(ctx, pstAlgCtx, calib);
+        /*    setIspFps(ctx, 30.0f,sdf);
+        printCtxFps(sdf);
+        setCtxFps(sdf, 30);
+        printCtxFps(sdf);
+         */
+        
         MemorySegment alg_init = arena.allocate(256 * 1024);
         alg_init.fill((byte) 0);
-
+        Log.info("about to run alg2User ");
+        
         alg2User.invokeExact(ctx, alg_init);
-        Log.info("run alg2Kernel");
+        Log.info("about to run alg2Kernel");
         alg2Kernel.invokeExact(ctx, pent.buffers[0].mapped);
+        
         return videoDev;
     }
 
+    /*
+    void printCtxFps(MemorySegment ctx) {
+        try {
+            int fps = ALG_SENSOR_DEFAULT_S.fps(ctx);
+            Log.info("ctx thinks fps is " + fps);
+        } catch (Throwable t) {
+            Log.warn("Can't access ctx segment because " + t.getMessage());
+        }
+    }
+
+    void setCtxFps(MemorySegment ctx, int fps) {
+        try {
+            ALG_SENSOR_DEFAULT_S.fps(ctx, fps);
+            Log.info("ctx set fps to " + fps);
+        } catch (Throwable t) {
+            Log.warn("Can't access ctx segment because " + t.getMessage());
+        }
+    }
+
+    void setIspFps(int ctx, float fps,MemorySegment sdf) {
+        if (fps_set_imx678 != null) {
+            try {
+                fps_set_imx678.invokeExact(ctx, fps, sdf);
+            } catch (Throwable ex) {
+                Log.error("cant set fps because " + ex.getMessage());
+            }
+        }
+    }
+     */
     @Override
     public void startCap() throws Throwable {
         vent.start();
         startStats();
         startParams();
     }
-
+    
     @Override
     public void stop() throws Throwable {
         vent.stop();
     }
-
+    
     class DQException extends RuntimeException {
-
+        
         DQException(String fail) {
             super(fail);
         }
     };
-
+    
     public V4l2Substitute getV4l2Sub() {
+        final var that = this;
         return new V4l2Substitute() {
-
+            
             @Override
             public void setBrightness(Long v) {
                 Integer[] o = getCsC();
                 o[CsCNames.brightness.ordinal()] = v.intValue();
                 setCsC(o);
             }
-
+            
             @Override
             public void setHue(Long v) {
                 Integer[] o = getCsC();
                 o[CsCNames.hue.ordinal()] = v.intValue();
                 setCsC(o);
             }
-
+            
             @Override
             public void setContrast(Long v) {
                 Integer[] o = getCsC();
                 o[CsCNames.contrast.ordinal()] = v.intValue();
                 setCsC(o);
             }
-
+            
             @Override
             public void setSaturation(Long v) {
                 Integer[] o = getCsC();
                 o[CsCNames.saturation.ordinal()] = v.intValue();
                 setCsC(o);
             }
-
+            
             @Override
             public void setExposure(Long v) {
-                setExposure(v);
+                Log.warn("exposure setting un-implemented (yet)");
+                //that.setExposure(v);
             }
-
+            
             @Override
             public Long getBrightness() {
                 Integer[] o = getCsC();
                 return Long.valueOf(o[CsCNames.brightness.ordinal()]);
             }
-
+            
             @Override
             public Long getHue() {
                 Integer[] o = getCsC();
                 return Long.valueOf(o[CsCNames.hue.ordinal()]);
             }
-
+            
             @Override
             public Long getContrast() {
                 Integer[] o = getCsC();
                 return Long.valueOf(o[CsCNames.contrast.ordinal()]);
             }
-
+            
             @Override
             public Long getExposure() {
                 throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
             }
-
+            
             @Override
             public Long getSaturation() {
                 Integer[] o = getCsC();
                 return Long.valueOf(o[CsCNames.saturation.ordinal()]);
             }
-
+            
         };
     }
-
+    
     class V4l2Buffer {
-
+        
         MediaEntity ment;
         MemorySegment mapped;
         MemorySegment addr;
         long moffset;
         long mlength;
-
+        
         V4l2Buffer(MediaEntity m) {
             ment = m;
         }
-
+        
         private void unmap(MemorySegment s) throws Throwable {
             if (s == mapped) {
                 int res;
@@ -549,9 +693,9 @@ public class AmlMediaReader implements MmapReader {
                 }
                 mapped = null;
             }
-
+            
         }
-
+        
         void map(long length, long offset) throws Throwable {
             var dev = ment.getFd();
             addr = (MemorySegment) Mmap.mmap.invokeExact(
@@ -573,20 +717,20 @@ public class AmlMediaReader implements MmapReader {
                 Log.error("failed to map");
             }
         }
-
+        
         ByteBuffer asByteBuffer() {
             return mapped.asByteBuffer();
         }
     }
-
+    
     class MediaEntity {
-
+        
         V4l2Buffer[] buffers;
-
+        
         MemorySegment buf;
         MemorySegment ent;
         String ent_name;
-
+        
         MediaEntity(MemorySegment ent, int bcount, String name) throws Throwable {
             this.ent = ent;
             this.ent_name = name;
@@ -600,9 +744,9 @@ public class AmlMediaReader implements MmapReader {
                 throw new RuntimeException("cant get buffers for " + ent_name);
             }
             int acount = v4l2_requestbuffers.count(v4l2_rb);
-
+            
             Log.info(ent_name + " v4l2_video_req_bufs got " + acount + " wanted " + bcount);
-
+            
             buf = v4l2_buffer.allocate(arena);
             buffers = new V4l2Buffer[bcount];
             for (int i = 0; i < bcount; i++) {
@@ -613,26 +757,26 @@ public class AmlMediaReader implements MmapReader {
             Log.info(ent_name + "enqueue video buffers");
             eqBuffers();
         }
-
+        
         int getFd() {
             return media_entity.fd(ent);
         }
-
+        
         int eqBuffer() throws Throwable {
             return MangledMediaAPI.v4l2_video_q_buf(ent, buf);
         }
-
+        
         private void eqBuffers() throws Throwable {
             for (int i = 0; i < buffers.length; i++) {
                 v4l2_buffer.index(buf, i);
                 eqBuffer();
             }
         }
-
+        
         V4l2Buffer dqBuffer() throws Throwable {
             v4l2_buffer.type(buf, MangledMediaAPI.V4L2_BUF_TYPE_VIDEO_CAPTURE());
             v4l2_buffer.memory(buf, MangledMediaAPI.V4L2_MEMORY_MMAP());
-
+            
             int res = MangledMediaAPI.v4l2_video_dq_buf(ent, buf);
             if (res < 0) {
                 throw new DQException("VIDIOC_DQBUF failed");
@@ -640,11 +784,11 @@ public class AmlMediaReader implements MmapReader {
             long offset = getOffset();
             int length = getLength();
             int index = getIndex();
-
+            
             Log.verb("DQ'd index " + index + " offset = " + offset + " length= " + length);
             return buffers[index];
         }
-
+        
         private void mapBuffer(int index) throws Throwable {
             v4l2_buffer.index(buf, index);
             v4l2_buffer.type(buf, MangledMediaAPI.V4L2_BUF_TYPE_VIDEO_CAPTURE());
@@ -663,20 +807,20 @@ public class AmlMediaReader implements MmapReader {
             var vbuf = buffers[index];
             vbuf.map(length, offset);
         }
-
+        
         private long getOffset() {
             var m = v4l2_buffer.m(buf);
             return v4l2_buffer.m.offset(m);
         }
-
+        
         private int getLength() {
             return v4l2_buffer.length(buf);
         }
-
+        
         private int getIndex() {
             return v4l2_buffer.index(buf);
         }
-
+        
         public void start() {
             int rc = MangledMediaAPI.v4l2_video_stream_on(ent, MangledMediaAPI.V4L2_BUF_TYPE_VIDEO_CAPTURE());
             if (rc < 0) {
@@ -685,7 +829,7 @@ public class AmlMediaReader implements MmapReader {
                 Log.info("started capture" + ent_name);
             }
         }
-
+        
         public void stop() {
             int rc = MangledMediaAPI.v4l2_video_stream_off(ent, MangledMediaAPI.V4L2_BUF_TYPE_VIDEO_CAPTURE());
             if (rc < 0) {
@@ -694,45 +838,49 @@ public class AmlMediaReader implements MmapReader {
                 Log.info("started capture" + ent_name);
             }
         }
-
+        
     }
-
+    
     public ByteBuffer process(ByteBuffer frame) {
         Log.verb("Got from of " + frame.remaining());
         return frame;
     }
-
+    
     @Override
     synchronized public ByteBuffer read() throws Throwable {
         var mbuf = vent.dqBuffer();
-
+        
         Log.verb("mapped size " + mbuf.mapped.byteSize() + " address " + mbuf.mapped.address());
         ByteBuffer fb = mbuf.asByteBuffer();
         fb.position(0);
         fb.limit((int) mbuf.mapped.byteSize());
         Log.debug("grabbed our buffer, remaining is " + fb.remaining());
         var ret = process(fb);
-        Log.debug("processed buffer to " + ret.remaining());
+        Log.debug("processed buffer to " + ((ret == null) ? "empty" : ret.remaining()));
         // this is sorta questionable..... how do we know it is the same buffer (index) still?
         vent.eqBuffer();
         return ret;
     }
-
+    
     Thread statsRunner;
     Thread paramRunner;
-
+    
     public void stopStatsAndParams() {
         statsRunner = null;
         paramRunner = null;
     }
-
+    
     final static void sleepOrNot(long nap) {
         try {
             Thread.sleep(nap);
         } catch (InterruptedException x) {
         }
     }
-
+    
+    public int getFrameRate() {
+        return 60;
+    }
+    
     public void startParams() {
         paramRunner = new Thread(() -> {
             int i = 0;
@@ -758,17 +906,17 @@ public class AmlMediaReader implements MmapReader {
                 Log.error("Stats thread ended because " + t.getMessage());
             }
         });
-        paramRunner.setName("vl4statsRunner");
+        paramRunner.setName("vl4paramRunner");
         paramRunner.start();
     }
-
+    
     void doATask() {
         Runnable task = v4lQueue.poll();
         if (task != null) {
             task.run();
         }
     }
-
+    
     public void startStats() {
         statsRunner = new Thread(() -> {
             try {
@@ -778,7 +926,7 @@ public class AmlMediaReader implements MmapReader {
                 while (statsRunner != null) {
                     try {
                         var sbuf = sent.dqBuffer();
-
+                        
                         Log.verb("stats mapped size " + sbuf.mapped.byteSize() + " address " + sbuf.mapped.address());
                         int ctx = 0;
                         alg2User.invokeExact(ctx, sbuf.mapped);
@@ -800,9 +948,9 @@ public class AmlMediaReader implements MmapReader {
         statsRunner.setName("vl4statsRunner");
         statsRunner.start();
     }
-
+    
     public static void main(String args[]) {
-        Log.setLevel(Log.VERB);
+        Log.setLevel(Log.INFO);
         try {
             // Note this needs some magic to work
             // LD_PRELOAD="/usr/lib/liblens.so /usr/lib/libtuning.so /usr/lib/libmediaAPI.so " 
@@ -810,11 +958,18 @@ public class AmlMediaReader implements MmapReader {
             Path outF = Paths.get("/tmp/tst300.nv12");
             OpenOption[] options = {StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING};
             try (java.nio.channels.WritableByteChannel outb = Channels.newChannel(Files.newOutputStream(outF, options))) {
+                int[] framecount = new int[1];
+                framecount[0] = 0;
                 var a = new AmlMediaReader("/dev/media0", 1920, 1080) {
                     @Override
                     public ByteBuffer process(ByteBuffer frame) {
                         try {
-                            outb.write(frame);
+                            if ((framecount[0] % 30) == 0) {
+                                outb.write(frame);
+                                Log.info("frame " + framecount[0] + " written " + frame.position());
+                                
+                            }
+                            framecount[0]++;
                         } catch (IOException iox) {
                             Log.error("Failed to write frame");
                         }
@@ -823,21 +978,20 @@ public class AmlMediaReader implements MmapReader {
                 };
                 Log.info("Should start cap now....");
                 a.startCap();
-                for (int i = 0; i < 255; i++) {
+                for (int i = 0; i < 300; i++) {
                     var frame = a.read();
-                    if ((i % 16)==0) {
-                        a.getV4l2Sub().setContrast(Long.valueOf(i));
-                    }
-                    Log.info("frame written " + frame.remaining());
                 }
                 a.stop();
             }
+            Thread.sleep(1000);
+            Log.info("about to quit now....");
+            System.exit(0);
+            
         } catch (Throwable t) {
             Log.error(" threw " + t.getMessage());
             t.printStackTrace();
         }
-        Log.info("about to quit now....");
-
+        
     }
-
+    
 }

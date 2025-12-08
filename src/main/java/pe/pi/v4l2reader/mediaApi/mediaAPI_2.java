@@ -7716,7 +7716,7 @@ public class mediaAPI_2 extends mediaAPI_3 {
             mediaAPI.C_POINTER
         );
 
-        public static final MemorySegment ADDR = mediaAPI.findOrThrow("v4l2_subdev_get_frame_interval");
+        public static final MemorySegment ADDR = MangledMediaAPI.findOrThrow("v4l2_subdev_get_frame_interval");
 
         public static final MethodHandle HANDLE = Linker.nativeLinker().downcallHandle(ADDR, DESC);
     }

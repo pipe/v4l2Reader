@@ -6,6 +6,7 @@ import java.lang.foreign.Linker;
 import java.lang.foreign.MemoryLayout;
 import java.lang.foreign.MemorySegment;
 import java.lang.invoke.MethodHandle;
+import java.nio.ByteBuffer;
 import java.util.Map;
 import static pe.pi.v4l2reader.mediaApi.mediaAPI_3.SYMBOL_LOOKUP;
 
@@ -27,6 +28,7 @@ public class MangledMediaAPI extends mediaAPI {
             Map.entry("v4l2_video_get_capability", "_Z25v4l2_video_get_capabilityP12media_entityP15v4l2_capability"),
             Map.entry("v4l2_video_stream_off", "_Z21v4l2_video_stream_offP12media_entityi"),
             Map.entry("v4l2_video_get_format", "_Z21v4l2_video_get_formatP12media_entityP11v4l2_format"),
+            Map.entry("v4l2_subdev_get_frame_interval","_Z30v4l2_subdev_get_frame_intervalP12media_entityP10v4l2_fract"),
             Map.entry("media_device_new", "_Z16media_device_newPKc"),
             Map.entry("mediaStreamConfig", "_Z17mediaStreamConfigP12media_streamP20stream_configuration"),
             Map.entry("mediaStreamInit", "_Z15mediaStreamInitP12media_streamP12media_device"),
@@ -213,4 +215,15 @@ public class MangledMediaAPI extends mediaAPI {
             mediaAPI.C_POINTER.withName("pRetValue")
     ).withName("aisp_api_type_t");
 
+    public static final String segToString(MemorySegment seg){
+        StringBuilder ret = new StringBuilder();
+        ByteBuffer bb = seg.asByteBuffer();
+        while  (0 < bb.remaining()){
+            byte b = bb.get();
+            if (b == 0) { break;}
+            ret.append((char)b);
+        }
+        return ret.toString();
+    }
+    
 }

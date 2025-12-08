@@ -21,7 +21,7 @@ public class V4l2Structs {
     final static int V4L2_PIX_FMT_YUYV = 0x56595559;
     final static int V4L2_MEMORY_MMAP = 1;
     final static int V4L2_MEMORY_DMABUF = 4;
-    GroupLayout v4l2_pix_format = MemoryLayout.structLayout(
+    public static GroupLayout v4l2_pix_format = MemoryLayout.structLayout(
             JAVA_INT.withName("width"),
             JAVA_INT.withName("height"),
             JAVA_INT.withName("pixelformat"),
@@ -35,14 +35,14 @@ public class V4l2Structs {
             JAVA_INT.withName("quantization"),
             JAVA_INT.withName("xfer_func")
     );
-    GroupLayout v4l2_requestbuffers = MemoryLayout.structLayout(
+    public static GroupLayout v4l2_requestbuffers = MemoryLayout.structLayout(
             JAVA_INT.withName("count"),
             JAVA_INT.withName("type"),
             JAVA_INT.withName("memory"),
             JAVA_INT.withName("capabilities"),
             JAVA_INT.withName("flags")// lie - last 3 bytes are reserved.
     );
-    GroupLayout v4l2_buffer = MemoryLayout.structLayout(
+    public static GroupLayout v4l2_buffer = MemoryLayout.structLayout(
             JAVA_INT.withName("index"),
             JAVA_INT.withName("type"),
             JAVA_INT.withName("bytesused"),
@@ -58,10 +58,20 @@ public class V4l2Structs {
             JAVA_INT.withName("reserved2"),
             JAVA_INT.withName("reserved")
     );
-    GroupLayout v4l2_format = MemoryLayout.structLayout(
+    public static GroupLayout v4l2_format = MemoryLayout.structLayout(
             JAVA_INT.withName("type"),
             MemoryLayout.paddingLayout(4), // Align union to 8 bytes
             v4l2_pix_format.withName("pix"),
             MemoryLayout.paddingLayout(200 - v4l2_pix_format.byteSize()) // pad to full union size
+    );
+    /*
+    struct v4l2_fract {
+        __u32   numerator;
+        __u32   denominator;
+};
+    */
+    public static GroupLayout v4l2_fract = MemoryLayout.structLayout(
+            JAVA_INT.withName("numerator"),
+            JAVA_INT.withName("denominator")
     );
 }
