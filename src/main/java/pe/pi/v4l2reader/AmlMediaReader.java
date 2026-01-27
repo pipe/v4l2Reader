@@ -49,9 +49,9 @@ import pe.pi.v4l2reader.mediaApi.v4l2_requestbuffers;
  * @author thp
  */
 public class AmlMediaReader implements MmapReader {
-    
+
     java.nio.file.Path path;
-    
+
     byte[] out;
     int videoDev = 0;
     int width;
@@ -68,6 +68,11 @@ public class AmlMediaReader implements MmapReader {
     private MediaEntity sent;
     //  private final MethodHandle fps_set_imx678;
     private String sensorname;
+    private long exposure = 900;
+    private int autoExposure;
+    private int strategy;
+    private int exmode;
+    private final MethodHandle aml_debug_mode_set;
 
     public AmlMediaReader(String dev, int w, int h) throws Throwable {
         width = w;
@@ -76,9 +81,9 @@ public class AmlMediaReader implements MmapReader {
         arena = Arena.global();
         v4lQueue = new ConcurrentLinkedQueue();
         Linker linker = Linker.nativeLinker();
-        
+
         var ispLib = SymbolLookup.libraryLookup("libispaml.so", arena);
-        
+
         aisp_enable = linker.downcallHandle(
                 ispLib.find("aisp_enable").orElseThrow(),
                 FunctionDescriptor.ofVoid(
@@ -108,6 +113,14 @@ public class AmlMediaReader implements MmapReader {
                         ValueLayout.ADDRESS // void* api_type
                 )
         );
+        aml_debug_mode_set = linker.downcallHandle(
+                ispLib.find("aml_debug_mode_set").orElseThrow(),
+                FunctionDescriptor.of(
+                        ValueLayout.JAVA_INT, // int retval 0 or -1
+                        ValueLayout.JAVA_INT // debug (1 or 0)
+                )
+        );
+
         /*
         var camLib = SymbolLookup.libraryLookup("libtuning.so", arena);
         fps_set_imx678 = linker.downcallHandle(
@@ -119,16 +132,15 @@ public class AmlMediaReader implements MmapReader {
                 )
         );
          */
-        
         if (Files.isReadable(path)) {
             setup();
-            
+
         } else {
             Log.error("cant read " + path);
         }
-        
+
     }
-    
+
     private void printStreamNames(MemorySegment mediaS) {
         /*
          *     char media_dev_name[64];
@@ -157,9 +169,9 @@ public class AmlMediaReader implements MmapReader {
         mess.append("\n\tvideo_ent_name3 ").append(segToString(media_stream.video_ent_name3(mediaS)));
         mess.append("\n\tvideo_param_name ").append(segToString(media_stream.video_param_name(mediaS)));
         Log.info("MediaStream Names " + mess.toString());
-        
+
     }
-    
+
     private void printcaps(MemorySegment v4l2_cap) {
         /*
          * struct v4l2_capability {
@@ -174,21 +186,53 @@ public class AmlMediaReader implements MmapReader {
          */
         String driver = segToString(v4l2_capability.driver(v4l2_cap));
         String card = segToString(v4l2_capability.card(v4l2_cap));
-        
+
         String bus_info = segToString(v4l2_capability.bus_info(v4l2_cap));
         int version = v4l2_capability.version(v4l2_cap);
         int capabilities = v4l2_capability.capabilities(v4l2_cap);
         int device_caps = v4l2_capability.device_caps(v4l2_cap);
-        
+
         Log.info("caps: driver=" + driver + "\tcard=" + card + "\tbus_info" + bus_info);
         Log.info("caps: version=" + version + "\tcapabilities=" + Integer.toBinaryString(capabilities) + "\tdevice_caps=" + Integer.toBinaryString(device_caps));
     }
-    
+
+    private String getAE() {
+        return (autoExposure == 0 ? "1" : "0");
+    }
+
+    private void setAE(Long v) {
+        autoExposure = v == 0 ? 1 : 0;
+    }
+
+    private Long getExposure() {
+        int estructLen = 35 * 4;
+        MemorySegment attr = arena.allocate(estructLen);
+        MemorySegment rattr = arena.allocate(estructLen);
+
+        MemorySegment cmd = arena.allocate(MangledMediaAPI.aisp_api_type_tLayout);
+
+        VarHandle direction = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("direction"));
+        VarHandle cmdType = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdType"));
+        VarHandle cmdId = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdId"));
+        VarHandle value = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("value"));
+        VarHandle pData = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("pData"));
+        VarHandle pRetValue = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("pRetValue"));
+        direction.set(cmd, 0L, (byte) 0x0); //get
+        cmdId.set(cmd, 0L, (byte) 40); // AML_MBI_ISP_ExposureAttr;
+        pData.set(cmd, 0L, attr);
+        pRetValue.set(cmd, 0L, rattr);
+        var bb = rattr.asByteBuffer().order(ByteOrder.nativeOrder());
+        for (int i = 0; i < 35; i++) {
+            Log.info("Exposure attr[" + i + "] = " + bb.getInt());
+        }
+        return exposure;
+    }
+
     enum CsCNames {
         unused, brightness, contrast, sharpness, saturation, hue, vibrance
     };
     final static HashMap<Integer, CsCNames> CsCNameMap = new HashMap();
-    
+
     static {
         CsCNameMap.put(CsCNames.unused.ordinal(), CsCNames.unused);
         CsCNameMap.put(CsCNames.brightness.ordinal(), CsCNames.brightness);
@@ -198,16 +242,16 @@ public class AmlMediaReader implements MmapReader {
         CsCNameMap.put(CsCNames.hue.ordinal(), CsCNames.hue);
         CsCNameMap.put(CsCNames.vibrance.ordinal(), CsCNames.vibrance);
     }
-    
+
     Integer[] getCsC() {
-        
+
         Integer[] ret = new Integer[7];
-        
+
         MemorySegment attr = arena.allocate(MangledMediaAPI.aml_isp_csc_attrLayout);
         MemorySegment rattr = arena.allocate(MangledMediaAPI.aml_isp_csc_attrLayout);
-        
+
         MemorySegment cmd = arena.allocate(MangledMediaAPI.aisp_api_type_tLayout);
-        
+
         VarHandle direction = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("direction"));
         VarHandle cmdType = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdType"));
         VarHandle cmdId = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdId"));
@@ -220,7 +264,7 @@ public class AmlMediaReader implements MmapReader {
         pRetValue.set(cmd, 0L, rattr);
         try {
             Log.info("trying to get csc ");
-            
+
             algFwInterface.invokeExact(0, cmd);
             Log.info("csc attr values are :");
             var bb = attr.asByteBuffer().order(ByteOrder.nativeOrder());
@@ -228,17 +272,164 @@ public class AmlMediaReader implements MmapReader {
                 ret[i] = bb.getInt();
                 Log.info(CsCNameMap.get(i) + " = " + ret[i]);
             }
-            
+
         } catch (Throwable ex) {
             Log.error("algFwInterface threw exception " + ex.toString());
         }
         return ret;
     }
-    
+
+    enum RoiNames {
+        en, wgt, x, y, width, height, target
+    };
+    final static HashMap<Integer, RoiNames> RoiNameMap = new HashMap();
+
+    static {
+        RoiNameMap.put(RoiNames.en.ordinal(), RoiNames.en);
+        RoiNameMap.put(RoiNames.wgt.ordinal(), RoiNames.wgt);
+        RoiNameMap.put(RoiNames.x.ordinal(), RoiNames.x);
+        RoiNameMap.put(RoiNames.y.ordinal(), RoiNames.y);
+        RoiNameMap.put(RoiNames.width.ordinal(), RoiNames.width);
+        RoiNameMap.put(RoiNames.height.ordinal(), RoiNames.height);
+        RoiNameMap.put(RoiNames.target.ordinal(), RoiNames.target);
+    }
+    private final static int AML_MBI_ISP_AERoiAttr = 52;
+
+    private Long getAERoi() {
+        Long ret = 0L;
+        int len = 16 * (7 * 4);
+
+        MemorySegment attr = arena.allocate(len);
+        MemorySegment rattr = arena.allocate(len);
+
+        MemorySegment cmd = arena.allocate(MangledMediaAPI.aisp_api_type_tLayout);
+
+        VarHandle direction = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("direction"));
+        VarHandle cmdType = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdType"));
+        VarHandle cmdId = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdId"));
+        VarHandle value = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("value"));
+        VarHandle pData = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("pData"));
+        VarHandle pRetValue = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("pRetValue"));
+        direction.set(cmd, 0L, (byte) 0x0); //get
+        cmdId.set(cmd, 0L, (byte) AML_MBI_ISP_AERoiAttr); // AML_MBI_ISP_CSCAttr
+        pData.set(cmd, 0L, attr);
+        pRetValue.set(cmd, 0L, rattr);
+        try {
+            Log.info("trying to get roi ");
+
+            algFwInterface.invokeExact(0, cmd);
+            Log.info("roi attr values are :");
+            var bb = rattr.asByteBuffer().order(ByteOrder.nativeOrder());
+            for (int at = 0; at < 16; at++) {
+                for (int i = 0; i < 7; i++) {
+                    int nv = bb.getInt();
+                    Log.info(RoiNameMap.get(i) + "[" + at + "]" + " = " + nv);
+                }
+            }
+            bb.rewind();
+            int x = bb.getInt(8) * 128 / width;
+            int y = bb.getInt(12) * 128 / height;
+            int x2 = x + bb.getInt(16) * 128 / width;
+            int y2 = y + bb.getInt(20) * 128 / height;
+            ret = (long) (x << 24) + (y << 16) + (x2 << 8) + y2;
+
+        } catch (Throwable ex) {
+            Log.error("algFwInterface threw exception " + ex.toString());
+        }
+        Log.info("returning roi of " + ret);
+
+        return ret;
+    }
+
+    //AML_MBI_ISP_AERouterAttr
+    void setAERoiActual(Long v) {
+
+//        typedef struct {
+//    uint32_t ae_roi_en;            /**< u1, AE ROI0 work mode. 0:off 1:on */
+//    uint32_t ae_roi_wgt;           /**< u4, ROI0 zone exposure weight */
+//    uint32_t ae_roi_x_st;          /**< u14, ROI0 rectangle zone start position x  */
+//    uint32_t ae_roi_y_st;          /**< u14, ROI0 rectangle zone start position y  */
+//    uint32_t ae_roi_width;         /**< u14, ROI0 rectangle zone width  */
+//    uint32_t ae_roi_height;        /**< u14, ROI0 rectangle zone height */
+//    uint32_t ae_roi_target;
+//} aisp_ae_roi;
+//typedef struct {
+//    aisp_ae_roi ae_roi[16];
+//} aml_isp_ae_roi_attr;
+        int len = 16 * (7 * 4);
+
+        MemorySegment attr = arena.allocate(len);
+        MemorySegment rattr = arena.allocate(len);
+
+        MemorySegment cmd = arena.allocate(MangledMediaAPI.aisp_api_type_tLayout);
+
+        VarHandle direction = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("direction"));
+        VarHandle cmdType = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdType"));
+        VarHandle cmdId = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdId"));
+        VarHandle value = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("value"));
+        VarHandle pData = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("pData"));
+        VarHandle pRetValue = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("pRetValue"));
+        cmdId.set(cmd, 0L, (byte) AML_MBI_ISP_AERoiAttr); // AML_MBI_ISP_AERoiAttr
+        pData.set(cmd, 0L, attr);
+        pRetValue.set(cmd, 0L, rattr);
+        direction.set(cmd, 0L, (byte) 01); //set
+        Log.info("new roi attr values are :");
+        var bb = attr.asByteBuffer().order(ByteOrder.nativeOrder());
+        bb.putInt(0x00000001); //en
+        bb.putInt(0); //weight
+        //           let v = (x << 24) + (y << 16) + (x2 << 8) + y2;
+        int x = (int) ((width * ((0xff) & (v >>> 24))) / 128);
+        bb.putInt(x);
+        int y = (int) ((height * ((0xff) & (v >>> 16))) / 128);
+        bb.putInt(y);
+        int x2 = (int) ((width * ((0xff) & (v >>> 8))) / 128);
+        bb.putInt((x2 - x));
+        int y2 = (int) ((height * ((0xff) & (v))) / 128);
+        bb.putInt((y2 - y));
+        int roiTarget = (int) exposure; // shrug?
+        bb.putInt(roiTarget);
+        bb.rewind();
+        for (int i = 0; i < 7; i++) {
+            int nv = bb.getInt();
+            Log.info("\tset" + RoiNameMap.get(i) + " = " + nv);
+        }
+// only set the first one - the rest are all zero implicitly disabled.
+        try {
+            Log.info("trying to set AE roi ");
+
+            //printSevenInt(attr);
+            algFwInterface.invokeExact(0, cmd);
+
+            /*
+            api_type->u8Direction = AML_CMD_SET;
+            api_type->u8CmdType = 0;// not used
+            api_type->u8CmdId = AML_MBI_ISP_ExposureAttr;
+            api_type->u32Value = 0;// not used
+            api_type->pData = (uint32_t *)&data;
+             */
+        } catch (Throwable ex) {
+            Log.error("algFwInterface threw exception " + ex.toString());
+        }
+    }
+
+    private void setAERoi(Long newv) {
+        Runnable task = new Runnable() {
+            Long v = newv;
+
+            @Override
+            public void run() {
+                getAERoi();
+                setAERoiActual(v);
+            }
+
+        };
+        v4lQueue.add(task);
+    }
+
     void setCsC(Integer[] csc) {
         Runnable task = new Runnable() {
             Integer v[] = csc;
-            
+
             @Override
             public void run() {
                 setCsCActual(v);
@@ -246,42 +437,65 @@ public class AmlMediaReader implements MmapReader {
         };
         v4lQueue.add(task);
     }
-    
+
     void setExposure(Long newv) {
+        exposure = newv;
+        Log.info("set exposure var to " + exposure);
+
         Runnable task = new Runnable() {
             Long v = newv;
-            
+
             @Override
             public void run() {
-                setExposureActual(v);
+                Log.info("Not directly setting exposure to " + v);
+                //setExposureActual(v);
+
             }
         };
         v4lQueue.add(task);
-        
+
     }
-    
+
     void setExposureActual(Long v) {
-        MemorySegment attr = arena.allocate(MangledMediaAPI.aml_isp_csc_attrLayout);
-        MemorySegment rattr = arena.allocate(MangledMediaAPI.aml_isp_csc_attrLayout);
-        
+        int estructLen = 35 * 4;
+        MemorySegment attr = arena.allocate(estructLen);
+        MemorySegment rattr = arena.allocate(estructLen);
+
         MemorySegment cmd = arena.allocate(MangledMediaAPI.aisp_api_type_tLayout);
-        
+
         VarHandle direction = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("direction"));
         VarHandle cmdType = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdType"));
         VarHandle cmdId = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdId"));
         VarHandle value = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("value"));
         VarHandle pData = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("pData"));
         VarHandle pRetValue = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("pRetValue"));
-        direction.set(cmd, 0L, (byte) 0x1); //get
-        cmdId.set(cmd, 0L, (byte) 11); // AML_MBI_ISP_ExposureAttr;
+        direction.set(cmd, 0L, (byte) 0x1); //set
+        cmdId.set(cmd, 0L, (byte) 40); // AML_MBI_ISP_ExposureAttr;
         pData.set(cmd, 0L, attr);
         pRetValue.set(cmd, 0L, rattr);
+        var bb = attr.asByteBuffer().order(ByteOrder.nativeOrder());
+        bb.putInt(0); //bypass
+        // experiment with manual mode
+        for (int i = 0; i < 5; i++) {
+            bb.putInt(0); // AUTO
+        }
+        for (int i = 0; i < 5; i++) {
+            bb.putInt(0); // values
+        }
+        exmode = (++exmode % 5);
+        bb.putInt(exmode); // value
+        Log.info("set exmode to " + exmode);
+        bb.putInt(strategy); // value
+        int exRoute = (autoExposure == 1 ? 2 : 0);
+        bb.putInt(exRoute);
+        Log.info("set ex route to " + exRoute);
+        bb.rewind();
+
         try {
             Log.info("trying to set exposure settings ");
 
-            //printSevenInt(attr);
             algFwInterface.invokeExact(0, cmd);
-            
+
         } catch (Throwable ex) {
             Log.error("algFwInterface threw exception " + ex.toString());
         }
@@ -345,14 +559,14 @@ public class AmlMediaReader implements MmapReader {
         
          */
     }
-    
+
     public void setCsCActual(Integer[] csc) {
-        
+
         MemorySegment attr = arena.allocate(MangledMediaAPI.aml_isp_csc_attrLayout);
         MemorySegment rattr = arena.allocate(MangledMediaAPI.aml_isp_csc_attrLayout);
-        
+
         MemorySegment cmd = arena.allocate(MangledMediaAPI.aisp_api_type_tLayout);
-        
+
         VarHandle direction = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("direction"));
         VarHandle cmdType = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdType"));
         VarHandle cmdId = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdId"));
@@ -387,7 +601,7 @@ public class AmlMediaReader implements MmapReader {
         } catch (Throwable ex) {
             Log.error("algFwInterface threw exception " + ex.toString());
         }
-        
+
     }
 
     /*
@@ -405,17 +619,18 @@ public class AmlMediaReader implements MmapReader {
         }
     }
      */
-    public String getSensorName(){
+    public String getSensorName() {
         return sensorname;
     }
+
     public int setup() throws Throwable {
         int fd = 0;
         MemorySegment devName = arena.allocateFrom(path.toString());
-        
+
         MemorySegment v4l2_media_stream = media_stream.allocate(arena);
-        
+
         var mediaDev = MangledMediaAPI.media_device_new(devName);
-        
+
         int rc = MangledMediaAPI.mediaStreamInit(v4l2_media_stream, mediaDev);
         if (rc != 0) {
             Log.error("mediaStreamInit failed");
@@ -426,16 +641,16 @@ public class AmlMediaReader implements MmapReader {
         var video_ent = media_stream.video_ent0(v4l2_media_stream);
         fd = media_entity.fd(video_ent);
         Log.info("Inited Media Stream video fd is " + fd);
-        
+
         var v4l2_cap = v4l2_capability.allocate(arena);
-        
+
         MangledMediaAPI.v4l2_video_get_capability(video_ent, v4l2_cap);
         Log.info("Got v4l2 caps for Media Stream video fd is " + fd);
         printcaps(v4l2_cap);
-        
+
         MangledMediaAPI.media_set_wdrMode(v4l2_media_stream, 0);
         MangledMediaAPI.media_set_wdrMode(v4l2_media_stream, MangledMediaAPI.WDR_MODE_NONE());
-        
+
         var stream_config = stream_configuration.allocate(arena);
         var format = stream_configuration.format(stream_config);
         aml_format.width(format, width);
@@ -443,19 +658,19 @@ public class AmlMediaReader implements MmapReader {
         aml_format.fourcc(format, V4l2Structs.V4L2_PIX_FMT_NV12);
         aml_format.code(format, MangledMediaAPI.MEDIA_BUS_FMT_SRGGB12_1X12());
         aml_format.nplanes(format, 1);
-        
+
         var vformat = stream_configuration.vformat(stream_config);
         aml_format.width(vformat, width);
         aml_format.height(vformat, height);
         aml_format.fourcc(vformat, V4l2Structs.V4L2_PIX_FMT_NV12);
-        
+
         rc = MangledMediaAPI.mediaStreamConfig(v4l2_media_stream, stream_config);
         if (rc < 0) {
             Log.error("mediaStreamConfig failed ");
             return -1;
         }
         Log.info(" mediaStreamConfig ok " + fd);
-        
+
         var v4l2_fmt = v4l2_format.allocate(arena);
         v4l2_format.type(v4l2_fmt, MangledMediaAPI.V4L2_BUF_TYPE_VIDEO_CAPTURE());
         var fmt = v4l2_format.fmt(v4l2_fmt);
@@ -464,16 +679,16 @@ public class AmlMediaReader implements MmapReader {
         v4l2_pix_format.height(pix, height);
         v4l2_pix_format.pixelformat(pix, V4l2Structs.V4L2_PIX_FMT_NV12);
         v4l2_pix_format.field(pix, MangledMediaAPI.V4L2_FIELD_ANY());
-        
+
         rc = MangledMediaAPI.v4l2_video_get_format(video_ent, v4l2_fmt);
         if (rc < 0) {
             Log.error("v4l2_video_get_format failed ");
             return -1;
         }
         Log.info(" v4l2_video_get_format ok " + fd);
-        
+
         vent = new MediaEntity(video_ent, 4, "video");
-        
+
         var datastream_config = stream_configuration.allocate(arena);
         var dataformat = stream_configuration.format(datastream_config);
         aml_format.width(dataformat, width);
@@ -488,7 +703,7 @@ public class AmlMediaReader implements MmapReader {
 // mediaApi.h:int setDataFormat(media_stream_t *camera, stream_configuration_t *cfg);
         MangledMediaAPI.setConfigFormat(v4l2_media_stream, datastream_config);
         MangledMediaAPI.setDataFormat(v4l2_media_stream, datastream_config);
-        
+
         var video_param = media_stream.video_param(v4l2_media_stream);
         var video_ent0 = media_stream.video_ent0(v4l2_media_stream);
         var video_stats = media_stream.video_stats(v4l2_media_stream);
@@ -498,13 +713,13 @@ public class AmlMediaReader implements MmapReader {
         getFrameRate(video_stats, "video stats");
          */
         pent = new MediaEntity(video_param, 1, "params");
-        
+
         sent = new MediaEntity(video_stats, 4, "stats");
-        
+
         MemorySegment sensor_ent = media_stream.sensor_ent(v4l2_media_stream);
-        
+
         videoDev = media_entity.fd(video_ent0);
-        
+
         MemorySegment sensorCfg = MangledMediaAPI.matchSensorConfig(v4l2_media_stream);
         MemorySegment lensCfg = MangledMediaAPI.matchLensConfig(v4l2_media_stream);
         var pstAlgCtx = AML_ALG_CTX_S.allocate(arena);
@@ -512,12 +727,12 @@ public class AmlMediaReader implements MmapReader {
         Log.debug("lens config is at " + lensCfg.address());
         if (lensCfg.address() > 0) {
             Log.debug("trying to config the lens " + lensCfg.address());
-            
+
             MemorySegment lens_ent = media_stream.lens_ent(v4l2_media_stream);
             MangledMediaAPI.lens_set_entity(lensCfg, lens_ent);
             //lens_control_cb(tparm->lensCfg, &tparm->pstAlgCtx.stLensFunc);
         }
-        
+
         Log.info("calibrating the camera and enabling the isp");
         MemorySegment calib = arena.allocate(1216 * 2); // Yeah, I know this is horrible - but, look at the nested enumed struct and just get the compiler to do a sizeof then double it!
         MangledMediaAPI.cmos_set_sensor_entity(sensorCfg, sensor_ent, 0);
@@ -532,23 +747,27 @@ public class AmlMediaReader implements MmapReader {
         setIspFps(ctx, 30.0f,sdf);
         
          */
+        Log.info("about to aml_debug_mode_set(1) ");
+        int res = (int) aml_debug_mode_set.invokeExact(1);
+        Log.info("aml_debug_mode_set(1) returned " + res);
+
         Log.info("about to run aisp_enable ");
-        
+
         aisp_enable.invokeExact(ctx, pstAlgCtx, calib);
         /*    setIspFps(ctx, 30.0f,sdf);
         printCtxFps(sdf);
         setCtxFps(sdf, 30);
         printCtxFps(sdf);
          */
-        
+
         MemorySegment alg_init = arena.allocate(256 * 1024);
         alg_init.fill((byte) 0);
         Log.info("about to run alg2User ");
-        
+
         alg2User.invokeExact(ctx, alg_init);
         Log.info("about to run alg2Kernel");
         alg2Kernel.invokeExact(ctx, pent.buffers[0].mapped);
-        
+
         return videoDev;
     }
 
@@ -587,101 +806,127 @@ public class AmlMediaReader implements MmapReader {
         startStats();
         startParams();
     }
-    
+
     @Override
     public void stop() throws Throwable {
         vent.stop();
     }
-    
+
     class DQException extends RuntimeException {
-        
+
         DQException(String fail) {
             super(fail);
         }
     };
-    
+
     public V4l2Substitute getV4l2Sub() {
         final var that = this;
         return new V4l2Substitute() {
-            
+
             @Override
             public void setBrightness(Long v) {
                 Integer[] o = getCsC();
                 o[CsCNames.brightness.ordinal()] = v.intValue();
                 setCsC(o);
             }
-            
+
             @Override
             public void setHue(Long v) {
                 Integer[] o = getCsC();
                 o[CsCNames.hue.ordinal()] = v.intValue();
                 setCsC(o);
             }
-            
+
             @Override
             public void setContrast(Long v) {
                 Integer[] o = getCsC();
                 o[CsCNames.contrast.ordinal()] = v.intValue();
                 setCsC(o);
             }
-            
+
             @Override
             public void setSaturation(Long v) {
                 Integer[] o = getCsC();
                 o[CsCNames.saturation.ordinal()] = v.intValue();
                 setCsC(o);
             }
-            
+
             @Override
             public void setExposure(Long v) {
-                Log.warn("exposure setting un-implemented (yet)");
-                //that.setExposure(v);
+                that.setExposure(v);
             }
-            
+
             @Override
             public Long getBrightness() {
                 Integer[] o = getCsC();
                 return Long.valueOf(o[CsCNames.brightness.ordinal()]);
             }
-            
+
             @Override
             public Long getHue() {
                 Integer[] o = getCsC();
                 return Long.valueOf(o[CsCNames.hue.ordinal()]);
             }
-            
+
             @Override
             public Long getContrast() {
                 Integer[] o = getCsC();
                 return Long.valueOf(o[CsCNames.contrast.ordinal()]);
             }
-            
+
             @Override
             public Long getExposure() {
-                throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
+                return that.getExposure();
             }
-            
+
             @Override
             public Long getSaturation() {
                 Integer[] o = getCsC();
                 return Long.valueOf(o[CsCNames.saturation.ordinal()]);
             }
-            
+
+            @Override
+            public void setAERoi(Long v) {
+                that.setAERoi(v);
+            }
+
+            @Override
+            public Long getAERoi() {
+                return that.getAERoi();
+            }
+
+            @Override
+            public String getSensorName() {
+                return that.getSensorName();
+            }
+
+            @Override
+            public String getAE() {
+                return that.getAE();
+
+            }
+
+            @Override
+            public void setAE(Long v) {
+                that.setAE(v);
+
+            }
+
         };
     }
-    
+
     class V4l2Buffer {
-        
+
         MediaEntity ment;
         MemorySegment mapped;
         MemorySegment addr;
         long moffset;
         long mlength;
-        
+
         V4l2Buffer(MediaEntity m) {
             ment = m;
         }
-        
+
         private void unmap(MemorySegment s) throws Throwable {
             if (s == mapped) {
                 int res;
@@ -693,9 +938,9 @@ public class AmlMediaReader implements MmapReader {
                 }
                 mapped = null;
             }
-            
+
         }
-        
+
         void map(long length, long offset) throws Throwable {
             var dev = ment.getFd();
             addr = (MemorySegment) Mmap.mmap.invokeExact(
@@ -717,20 +962,20 @@ public class AmlMediaReader implements MmapReader {
                 Log.error("failed to map");
             }
         }
-        
+
         ByteBuffer asByteBuffer() {
             return mapped.asByteBuffer();
         }
     }
-    
+
     class MediaEntity {
-        
+
         V4l2Buffer[] buffers;
-        
+
         MemorySegment buf;
         MemorySegment ent;
         String ent_name;
-        
+
         MediaEntity(MemorySegment ent, int bcount, String name) throws Throwable {
             this.ent = ent;
             this.ent_name = name;
@@ -744,9 +989,9 @@ public class AmlMediaReader implements MmapReader {
                 throw new RuntimeException("cant get buffers for " + ent_name);
             }
             int acount = v4l2_requestbuffers.count(v4l2_rb);
-            
+
             Log.info(ent_name + " v4l2_video_req_bufs got " + acount + " wanted " + bcount);
-            
+
             buf = v4l2_buffer.allocate(arena);
             buffers = new V4l2Buffer[bcount];
             for (int i = 0; i < bcount; i++) {
@@ -757,26 +1002,26 @@ public class AmlMediaReader implements MmapReader {
             Log.info(ent_name + "enqueue video buffers");
             eqBuffers();
         }
-        
+
         int getFd() {
             return media_entity.fd(ent);
         }
-        
+
         int eqBuffer() throws Throwable {
             return MangledMediaAPI.v4l2_video_q_buf(ent, buf);
         }
-        
+
         private void eqBuffers() throws Throwable {
             for (int i = 0; i < buffers.length; i++) {
                 v4l2_buffer.index(buf, i);
                 eqBuffer();
             }
         }
-        
+
         V4l2Buffer dqBuffer() throws Throwable {
             v4l2_buffer.type(buf, MangledMediaAPI.V4L2_BUF_TYPE_VIDEO_CAPTURE());
             v4l2_buffer.memory(buf, MangledMediaAPI.V4L2_MEMORY_MMAP());
-            
+
             int res = MangledMediaAPI.v4l2_video_dq_buf(ent, buf);
             if (res < 0) {
                 throw new DQException("VIDIOC_DQBUF failed");
@@ -784,11 +1029,11 @@ public class AmlMediaReader implements MmapReader {
             long offset = getOffset();
             int length = getLength();
             int index = getIndex();
-            
+
             Log.verb("DQ'd index " + index + " offset = " + offset + " length= " + length);
             return buffers[index];
         }
-        
+
         private void mapBuffer(int index) throws Throwable {
             v4l2_buffer.index(buf, index);
             v4l2_buffer.type(buf, MangledMediaAPI.V4L2_BUF_TYPE_VIDEO_CAPTURE());
@@ -807,20 +1052,20 @@ public class AmlMediaReader implements MmapReader {
             var vbuf = buffers[index];
             vbuf.map(length, offset);
         }
-        
+
         private long getOffset() {
             var m = v4l2_buffer.m(buf);
             return v4l2_buffer.m.offset(m);
         }
-        
+
         private int getLength() {
             return v4l2_buffer.length(buf);
         }
-        
+
         private int getIndex() {
             return v4l2_buffer.index(buf);
         }
-        
+
         public void start() {
             int rc = MangledMediaAPI.v4l2_video_stream_on(ent, MangledMediaAPI.V4L2_BUF_TYPE_VIDEO_CAPTURE());
             if (rc < 0) {
@@ -829,7 +1074,7 @@ public class AmlMediaReader implements MmapReader {
                 Log.info("started capture" + ent_name);
             }
         }
-        
+
         public void stop() {
             int rc = MangledMediaAPI.v4l2_video_stream_off(ent, MangledMediaAPI.V4L2_BUF_TYPE_VIDEO_CAPTURE());
             if (rc < 0) {
@@ -838,18 +1083,18 @@ public class AmlMediaReader implements MmapReader {
                 Log.info("started capture" + ent_name);
             }
         }
-        
+
     }
-    
+
     public ByteBuffer process(ByteBuffer frame) {
         Log.verb("Got from of " + frame.remaining());
         return frame;
     }
-    
+
     @Override
     synchronized public ByteBuffer read() throws Throwable {
         var mbuf = vent.dqBuffer();
-        
+
         Log.verb("mapped size " + mbuf.mapped.byteSize() + " address " + mbuf.mapped.address());
         ByteBuffer fb = mbuf.asByteBuffer();
         fb.position(0);
@@ -861,26 +1106,26 @@ public class AmlMediaReader implements MmapReader {
         vent.eqBuffer();
         return ret;
     }
-    
+
     Thread statsRunner;
     Thread paramRunner;
-    
+
     public void stopStatsAndParams() {
         statsRunner = null;
         paramRunner = null;
     }
-    
+
     final static void sleepOrNot(long nap) {
         try {
             Thread.sleep(nap);
         } catch (InterruptedException x) {
         }
     }
-    
+
     public int getFrameRate() {
         return 60;
     }
-    
+
     public void startParams() {
         paramRunner = new Thread(() -> {
             int i = 0;
@@ -909,14 +1154,14 @@ public class AmlMediaReader implements MmapReader {
         paramRunner.setName("vl4paramRunner");
         paramRunner.start();
     }
-    
+
     void doATask() {
         Runnable task = v4lQueue.poll();
         if (task != null) {
             task.run();
         }
     }
-    
+
     public void startStats() {
         statsRunner = new Thread(() -> {
             try {
@@ -926,7 +1171,7 @@ public class AmlMediaReader implements MmapReader {
                 while (statsRunner != null) {
                     try {
                         var sbuf = sent.dqBuffer();
-                        
+
                         Log.verb("stats mapped size " + sbuf.mapped.byteSize() + " address " + sbuf.mapped.address());
                         int ctx = 0;
                         alg2User.invokeExact(ctx, sbuf.mapped);
@@ -948,7 +1193,7 @@ public class AmlMediaReader implements MmapReader {
         statsRunner.setName("vl4statsRunner");
         statsRunner.start();
     }
-    
+
     public static void main(String args[]) {
         Log.setLevel(Log.INFO);
         try {
@@ -967,7 +1212,7 @@ public class AmlMediaReader implements MmapReader {
                             if ((framecount[0] % 30) == 0) {
                                 outb.write(frame);
                                 Log.info("frame " + framecount[0] + " written " + frame.position());
-                                
+
                             }
                             framecount[0]++;
                         } catch (IOException iox) {
@@ -986,12 +1231,12 @@ public class AmlMediaReader implements MmapReader {
             Thread.sleep(1000);
             Log.info("about to quit now....");
             System.exit(0);
-            
+
         } catch (Throwable t) {
             Log.error(" threw " + t.getMessage());
             t.printStackTrace();
         }
-        
+
     }
-    
+
 }

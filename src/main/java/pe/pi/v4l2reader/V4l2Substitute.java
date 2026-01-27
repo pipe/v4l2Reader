@@ -26,4 +26,14 @@ public interface V4l2Substitute {
 
     public Long getSaturation();
 
+    public void setAERoi(Long v);
+
+    public Long getAERoi();
+
+    public String getSensorName();
+
+    public String getAE();
+
+    public void setAE(Long v);
+
 }
