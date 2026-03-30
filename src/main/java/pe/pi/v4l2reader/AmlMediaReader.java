@@ -202,28 +202,33 @@ public class AmlMediaReader implements MmapReader {
 
     private void setAE(Long v) {
         autoExposure = v == 0 ? 1 : 0;
+        setExposure(exposure);
     }
 
     private Long getExposure() {
-        int estructLen = 35 * 4;
+        int estructLen = 168;
+        int ints = 168/4;
         MemorySegment attr = arena.allocate(estructLen);
-        MemorySegment rattr = arena.allocate(estructLen);
 
         MemorySegment cmd = arena.allocate(MangledMediaAPI.aisp_api_type_tLayout);
 
         VarHandle direction = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("direction"));
-        VarHandle cmdType = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdType"));
         VarHandle cmdId = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdId"));
-        VarHandle value = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("value"));
         VarHandle pData = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("pData"));
-        VarHandle pRetValue = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("pRetValue"));
         direction.set(cmd, 0L, (byte) 0x0); //get
         cmdId.set(cmd, 0L, (byte) 40); // AML_MBI_ISP_ExposureAttr;
         pData.set(cmd, 0L, attr);
-        pRetValue.set(cmd, 0L, rattr);
-        var bb = rattr.asByteBuffer().order(ByteOrder.nativeOrder());
-        for (int i = 0; i < 35; i++) {
-            Log.info("Exposure attr[" + i + "] = " + bb.getInt());
+        try {
+            Log.info("trying to get exposure data ");
+
+            algFwInterface.invokeExact(0, cmd);
+            var bb = attr.asByteBuffer().order(ByteOrder.nativeOrder());
+            for (int i = 0; i < ints; i++) {
+                Log.info("Exposure attr[" + i + "] = " + bb.getInt());
+            }
+            exposure = bb.getInt(this.stManual_u32ExpTime);
+        } catch (Throwable ex) {
+            Log.error("algFwInterface threw exception " + ex.toString());
         }
         return exposure;
     }
@@ -300,26 +305,21 @@ public class AmlMediaReader implements MmapReader {
         int len = 16 * (7 * 4);
 
         MemorySegment attr = arena.allocate(len);
-        MemorySegment rattr = arena.allocate(len);
 
         MemorySegment cmd = arena.allocate(MangledMediaAPI.aisp_api_type_tLayout);
 
         VarHandle direction = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("direction"));
-        VarHandle cmdType = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdType"));
         VarHandle cmdId = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdId"));
-        VarHandle value = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("value"));
         VarHandle pData = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("pData"));
-        VarHandle pRetValue = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("pRetValue"));
         direction.set(cmd, 0L, (byte) 0x0); //get
         cmdId.set(cmd, 0L, (byte) AML_MBI_ISP_AERoiAttr); // AML_MBI_ISP_CSCAttr
         pData.set(cmd, 0L, attr);
-        pRetValue.set(cmd, 0L, rattr);
         try {
             Log.info("trying to get roi ");
 
             algFwInterface.invokeExact(0, cmd);
             Log.info("roi attr values are :");
-            var bb = rattr.asByteBuffer().order(ByteOrder.nativeOrder());
+            var bb = attr.asByteBuffer().order(ByteOrder.nativeOrder());
             for (int at = 0; at < 16; at++) {
                 for (int i = 0; i < 7; i++) {
                     int nv = bb.getInt();
@@ -364,19 +364,15 @@ public class AmlMediaReader implements MmapReader {
         MemorySegment cmd = arena.allocate(MangledMediaAPI.aisp_api_type_tLayout);
 
         VarHandle direction = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("direction"));
-        VarHandle cmdType = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdType"));
         VarHandle cmdId = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdId"));
-        VarHandle value = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("value"));
         VarHandle pData = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("pData"));
-        VarHandle pRetValue = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("pRetValue"));
         cmdId.set(cmd, 0L, (byte) AML_MBI_ISP_AERoiAttr); // AML_MBI_ISP_AERoiAttr
         pData.set(cmd, 0L, attr);
-        pRetValue.set(cmd, 0L, rattr);
         direction.set(cmd, 0L, (byte) 01); //set
         Log.info("new roi attr values are :");
         var bb = attr.asByteBuffer().order(ByteOrder.nativeOrder());
         bb.putInt(0x00000001); //en
-        bb.putInt(0); //weight
+        bb.putInt(15); //weight
         //           let v = (x << 24) + (y << 16) + (x2 << 8) + y2;
         int x = (int) ((width * ((0xff) & (v >>> 24))) / 128);
         bb.putInt(x);
@@ -448,7 +444,7 @@ public class AmlMediaReader implements MmapReader {
             @Override
             public void run() {
                 Log.info("Not directly setting exposure to " + v);
-                //setExposureActual(v);
+                setExposureActual(v);
 
             }
         };
@@ -456,46 +452,70 @@ public class AmlMediaReader implements MmapReader {
 
     }
 
+    /*
+    int IspMgr::set_exposure_time(int shuttime_value) {
+  aisp_api_type_t param;
+  isp_exposure_attr_s data;
+  aisp_api_type_t *api_type = &param;
+  isp_exposure_attr_s *attr = &data;
+  api_type->u8Direction = AML_CMD_GET;
+  api_type->u8CmdType = 0; // not used
+  api_type->u8CmdId = AML_MBI_ISP_ExposureAttr;
+  api_type->u32Value = 0; // not used
+  api_type->pData = (uint32_t *)&data;
+  (IspMgr::mIspIF.algFwInterface)(mId, api_type);
+
+  attr->stManual.enExpTimeOpType = OP_TYPE_MANUAL;
+  attr->stManual.u32ExpTime = shuttime_value;
+  api_type->u8Direction = AML_CMD_SET;
+  (IspMgr::mIspIF.algFwInterface)(mId, api_type);
+  return 0;
+}
+
+    */
+    int stManual_enExpTimeOpTyp = 4;
+    int stManual_u32ExpTime = 24;
+    int stAuto_enExposMode =44;
     void setExposureActual(Long v) {
-        int estructLen = 35 * 4;
+        int estructLen = 168;
+        int val = v.intValue();
         MemorySegment attr = arena.allocate(estructLen);
-        MemorySegment rattr = arena.allocate(estructLen);
 
         MemorySegment cmd = arena.allocate(MangledMediaAPI.aisp_api_type_tLayout);
 
         VarHandle direction = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("direction"));
-        VarHandle cmdType = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdType"));
         VarHandle cmdId = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("cmdId"));
-        VarHandle value = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("value"));
         VarHandle pData = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("pData"));
-        VarHandle pRetValue = MangledMediaAPI.aisp_api_type_tLayout.varHandle(PathElement.groupElement("pRetValue"));
-        direction.set(cmd, 0L, (byte) 0x1); //set
+        direction.set(cmd, 0L, (byte) 0x0); //get
         cmdId.set(cmd, 0L, (byte) 40); // AML_MBI_ISP_ExposureAttr;
         pData.set(cmd, 0L, attr);
-        pRetValue.set(cmd, 0L, rattr);
-        var bb = attr.asByteBuffer().order(ByteOrder.nativeOrder());
-        bb.putInt(0); //bypass
-        // experiment with manual mode
-        for (int i = 0; i < 5; i++) {
-            bb.putInt(0); // AUTO
-        }
-        for (int i = 0; i < 5; i++) {
-            bb.putInt(0); // values
-        }
-        exmode = (++exmode % 5);
-        bb.putInt(exmode); // value
-        Log.info("set exmode to " + exmode);
-        bb.putInt(strategy); // value
-        int exRoute = (autoExposure == 1 ? 2 : 0);
-        bb.putInt(exRoute);
-        Log.info("set ex route to " + exRoute);
-        bb.rewind();
-
         try {
-            Log.info("trying to set exposure settings ");
-
+            Log.info("trying to get exposure settings ");
             algFwInterface.invokeExact(0, cmd);
+            var bb = attr.asByteBuffer().order(ByteOrder.nativeOrder());
+            Log.info("bypass was "+bb.getInt(0));
+            bb.putInt(0,0);
+            Log.info("bypass will be "+bb.getInt(0));
+            
+            Log.info("stManual_enExpTimeOpTyp "+bb.getInt(stManual_enExpTimeOpTyp));
+            bb.putInt(stManual_enExpTimeOpTyp,((this.autoExposure == 1)?0:1));
+            Log.info("stManual_enExpTimeOpTyp "+bb.getInt(stManual_enExpTimeOpTyp));
+            
+            int xmo = bb.getInt(stAuto_enExposMode);
+            Log.info("stAuto_enExposMode was "+xmo);
+            if (this.autoExposure==1) {
+                xmo++;
+                if (xmo > 4){
+                    xmo = 0;
+                }
+            }
+            Log.info("stAuto_enExposMode will be "+xmo);
+            bb.putInt(stAuto_enExposMode,xmo);
 
+            bb.putInt(stManual_u32ExpTime,val);
+            direction.set(cmd, 0L, (byte) 0x1); //set
+            Log.info("trying to set exposure settings ");
+            algFwInterface.invokeExact(0, cmd);
         } catch (Throwable ex) {
             Log.error("algFwInterface threw exception " + ex.toString());
         }
