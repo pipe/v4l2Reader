@@ -1,13 +1,17 @@
 package pe.pi.v4l2reader.mediaApi;
 
+import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.GroupLayout;
 import java.lang.foreign.Linker;
 import java.lang.foreign.MemoryLayout;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.SymbolLookup;
 import java.lang.invoke.MethodHandle;
 import java.nio.ByteBuffer;
 import java.util.Map;
+import java.util.Optional;
+import static pe.pi.v4l2reader.mediaApi.mediaAPI_3.LIBRARY_ARENA;
 import static pe.pi.v4l2reader.mediaApi.mediaAPI_3.SYMBOL_LOOKUP;
 
 /**
@@ -33,8 +37,8 @@ public class MangledMediaAPI extends mediaAPI {
             Map.entry("mediaStreamConfig", "_Z17mediaStreamConfigP12media_streamP20stream_configuration"),
             Map.entry("mediaStreamInit", "_Z15mediaStreamInitP12media_streamP12media_device"),
             Map.entry("media_set_wdrMode", "_Z17media_set_wdrModeP12media_streamj"),
-            Map.entry("matchLensConfig", "_Z15matchLensConfigP12media_stream"),
-            Map.entry("matchSensorConfig", "_Z17matchSensorConfigP12media_stream"),
+            Map.entry("matchLensConfigByStream", "_Z15matchLensConfigP12media_stream"), // this is beyond ugly - but they changed the names for these two
+            Map.entry("matchSensorConfigByStream", "_Z17matchSensorConfigP12media_stream"), // this is beyond ugly - but they changed the names for these two
             Map.entry("lens_set_entity", "_Z15lens_set_entityP10lensConfigP12media_entity"),
             Map.entry("cmos_set_sensor_entity", "_Z22cmos_set_sensor_entityP12sensorConfigP12media_entityi"),
             Map.entry("cmos_sensor_control_cb", "_Z22cmos_sensor_control_cbP12sensorConfigP21ALG_SENSOR_EXP_FUNC_S"),
@@ -42,10 +46,32 @@ public class MangledMediaAPI extends mediaAPI {
             Map.entry("setDataFormat", "_Z13setDataFormatP12media_streamP20stream_configuration"),
             Map.entry("cmos_get_sensor_calibration", "_Z27cmos_get_sensor_calibrationP12sensorConfigP12media_entityP17aisp_calib_info_s")
     );
+        static final Arena LIBRARY_ARENA2 = Arena.ofAuto();
+    static final Arena LIBRARY_ARENA3 = Arena.ofAuto();
 
+
+    static final SymbolLookup MultiLibSYMBOL_LOOKUP = SymbolLookup.libraryLookup(System.mapLibraryName("mediaAPI"), LIBRARY_ARENA)
+            .or(SymbolLookup.libraryLookup(System.mapLibraryName("lens"), LIBRARY_ARENA3))
+            .or(SymbolLookup.libraryLookup(System.mapLibraryName("sns"), LIBRARY_ARENA2));
+
+            /*.or(SymbolLookup.loaderLookup())
+            .or(Linker.nativeLinker().defaultLookup());*/
+    
     static MemorySegment findOrThrow(String symbol) {
-        return SYMBOL_LOOKUP.find(unmangle.get(symbol))
-                .orElseThrow(() -> new UnsatisfiedLinkError("unresolved symbol: " + symbol));
+       Optional<MemorySegment> c = MultiLibSYMBOL_LOOKUP.find(symbol);
+       if (c.isPresent()){
+           System.err.println("found native method "+symbol);
+           return c.get();
+       } else {
+           Optional<MemorySegment> cpp = MultiLibSYMBOL_LOOKUP.find(unmangle.get(symbol));
+           if (cpp.isPresent()){
+               System.err.println("found mangled native method for "+symbol);
+               return cpp.get();
+           } else {
+               System.err.println("found neither "+symbol+ " nor "+unmangle.get(symbol)+ " native methods.");
+               throw new UnsatisfiedLinkError("unresolved symbol: " + symbol);
+           }               
+       }
     }
 
     private static class matchSensorConfig {
@@ -55,7 +81,7 @@ public class MangledMediaAPI extends mediaAPI {
                 mediaAPI.C_POINTER
         );
 
-        public static final MemorySegment ADDR = MangledMediaAPI.findOrThrow("matchSensorConfig");
+        public static final MemorySegment ADDR = MangledMediaAPI.findOrThrow("matchSensorConfigByStream"); // see above - this dance lets the higher code work for both c and C++ libs
 
         public static final MethodHandle HANDLE = Linker.nativeLinker().downcallHandle(ADDR, DESC);
     }
@@ -79,7 +105,7 @@ public class MangledMediaAPI extends mediaAPI {
                 mediaAPI.C_POINTER
         );
 
-        public static final MemorySegment ADDR = MangledMediaAPI.findOrThrow("matchLensConfig");
+        public static final MemorySegment ADDR = MangledMediaAPI.findOrThrow("matchLensConfigByStream");// see above - this dance lets the higher code work for both c and C++ libs
 
         public static final MethodHandle HANDLE = Linker.nativeLinker().downcallHandle(ADDR, DESC);
     }

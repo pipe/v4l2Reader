@@ -145,7 +145,7 @@ public class MmapRead extends V4l2Ioctls implements MmapReader {
         MemorySegment req = arena.allocate(v4l2_requestbuffers);
 
         // Set values
-        req.set(JAVA_INT, v4l2_requestbuffers.byteOffset(groupElement("count")), 5); // request 4 buffers
+        req.set(JAVA_INT, v4l2_requestbuffers.byteOffset(groupElement("count")), 6); // request 4 buffers
         req.set(JAVA_INT, v4l2_requestbuffers.byteOffset(groupElement("type")), V4L2_BUF_TYPE_VIDEO_CAPTURE);
         req.set(JAVA_INT, v4l2_requestbuffers.byteOffset(groupElement("memory")), V4L2_MEMORY_MMAP);
         req.set(JAVA_INT, v4l2_requestbuffers.byteOffset(groupElement("capabilities")), 0);
