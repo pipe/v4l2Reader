@@ -327,11 +327,13 @@ public class AmlMediaReader implements MmapReader {
                 }
             }
             bb.rewind();
-            int x = bb.getInt(8) * 128 / width;
-            int y = bb.getInt(12) * 128 / height;
-            int x2 = x + bb.getInt(16) * 128 / width;
-            int y2 = y + bb.getInt(20) * 128 / height;
-            ret = (long) (x << 24) + (y << 16) + (x2 << 8) + y2;
+            long x = bb.getInt(8);
+            long y = bb.getInt(12);
+            long w = bb.getInt(16);
+            long h =bb.getInt(20);
+            int wm = 1920/128;
+            int hm = 1080/128; // hacks - fix later
+            ret = ((x/wm) <<24 ) & ((y/hm) << 16) & ((w/wm) << 8) & h/hm;
 
         } catch (Throwable ex) {
             Log.error("algFwInterface threw exception " + ex.toString());
@@ -372,17 +374,19 @@ public class AmlMediaReader implements MmapReader {
         Log.info("new roi attr values are :");
         var bb = attr.asByteBuffer().order(ByteOrder.nativeOrder());
         bb.putInt(0x00000001); //en
-        bb.putInt(15); //weight
+        bb.putInt(32); //weight
+        int wm = 1920/128;
+        int hm = 1080/128; // hacks - fix later
         //           let v = (x << 24) + (y << 16) + (x2 << 8) + y2;
-        int x = (int) ((width * ((0xff) & (v >>> 24))) / 128);
+        int x = (int) ((0xff) & (v >>> 24))*wm;
         bb.putInt(x);
-        int y = (int) ((height * ((0xff) & (v >>> 16))) / 128);
+        int y = (int) ((0xff) & (v >>> 16))*hm;
         bb.putInt(y);
-        int x2 = (int) ((width * ((0xff) & (v >>> 8))) / 128);
-        bb.putInt((x2 - x));
-        int y2 = (int) ((height * ((0xff) & (v))) / 128);
-        bb.putInt((y2 - y));
-        int roiTarget = (int) exposure; // shrug?
+        int w = (int) ((0xff) & (v >>> 8))*wm;
+        bb.putInt(w);
+        int h = (int) ((0xff) & v) *hm;
+        bb.putInt(h);
+        int roiTarget = (int) 400; // shrug?
         bb.putInt(roiTarget);
         bb.rewind();
         for (int i = 0; i < 7; i++) {
