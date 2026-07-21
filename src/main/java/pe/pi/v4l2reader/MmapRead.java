@@ -28,17 +28,17 @@ public class MmapRead extends V4l2Ioctls implements MmapReader {
     int height;
 
     public MmapRead(String dev) throws Throwable {
-        this(dev, 1920, 1080);
+        this(dev, 1920, 1080,30,V4L2_PIX_FMT_NV12);
     }
 
-    public MmapRead(String dev, int w, int h) throws Throwable {
+    public MmapRead(String dev, int w, int h,int rate, int fmt) throws Throwable {
         super();
         width = w;
         height = h;
         path = java.nio.file.Paths.get(dev);
 
         if (Files.isReadable(path)) {
-            setup();
+            setup(rate,fmt);
         } else {
             Log.error("cant read " + path);
         }
@@ -88,7 +88,7 @@ public class MmapRead extends V4l2Ioctls implements MmapReader {
         }
     }
 
-    public int setup() throws Throwable {
+    public int setup(int framerate, int format ) throws Throwable {
         // Define native methods
         final int O_RDWR = 2;
 
@@ -106,7 +106,9 @@ public class MmapRead extends V4l2Ioctls implements MmapReader {
         videoDev = fd;
         Log.debug("opened " + path);
 
-        setFormat(libc, arena, fd);
+        setFormat(libc, arena, fd,format );
+        setSpeed(libc, arena, fd,framerate);
+
         Log.debug("set format for " + path);
 
         int bcount = requestCaptureBuffers(fd, arena, libc);
@@ -120,14 +122,40 @@ public class MmapRead extends V4l2Ioctls implements MmapReader {
         return fd;
     }
 
-    public void setFormat(SymbolLookup libc, Arena arena, int fd) throws Throwable {
+    /*
+    struct v4l2_streamparm streamparm;
+memset(&streamparm, 0, sizeof(streamparm));
+streamparm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+streamparm.parm.capture.timeperframe.numerator = 1;
+streamparm.parm.capture.timeperframe.denominator = 15; // 15 fps
+ioctl(fd, VIDIOC_S_PARM, &streamparm);
+     */
+
+    public void setSpeed(SymbolLookup libc, Arena arena, int fd, int fr) throws Throwable {
+        MemorySegment param = arena.allocate(v4l2_capture_streamparm);
+        param.set(JAVA_INT, v4l2_capture_streamparm.byteOffset(groupElement("type")), V4L2_BUF_TYPE_VIDEO_CAPTURE);
+        param.set(JAVA_INT,
+                v4l2_capture_streamparm.byteOffset(groupElement("timeperframe") ,groupElement("numerator")),
+                 1);
+        param.set(JAVA_INT,
+                v4l2_capture_streamparm.byteOffset(groupElement("timeperframe") ,groupElement("denominator")),
+                 fr);
+        int result = (int) ioctl.invoke(fd, VIDIOC_S_PARM, param);
+        if (result < 0) {
+            Log.error("ioctl VIDIOC_S_PARM failed");
+        } else {
+            Log.info("speed set successfully!");
+        }
+    }
+
+    public void setFormat(SymbolLookup libc, Arena arena, int fd, int format) throws Throwable {
 
         // Allocate and populate the v4l2_format structure
         MemorySegment fmt = arena.allocate(v4l2_format);
         fmt.set(JAVA_INT, v4l2_format.byteOffset(groupElement("type")), V4L2_BUF_TYPE_VIDEO_CAPTURE);
         fmt.set(JAVA_INT, v4l2_format.byteOffset(groupElement("pix"), groupElement("width")), width);
         fmt.set(JAVA_INT, v4l2_format.byteOffset(groupElement("pix"), groupElement("height")), height);
-        fmt.set(JAVA_INT, v4l2_format.byteOffset(groupElement("pix"), groupElement("pixelformat")), V4L2_PIX_FMT_NV12);
+        fmt.set(JAVA_INT, v4l2_format.byteOffset(groupElement("pix"), groupElement("pixelformat")), format);
         fmt.set(JAVA_INT, v4l2_format.byteOffset(groupElement("pix"), groupElement("field")), V4L2_FIELD_NONE);
 
         int result = (int) ioctl.invoke(fd, VIDIOC_S_FMT, fmt);

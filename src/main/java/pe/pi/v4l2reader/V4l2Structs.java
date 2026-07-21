@@ -19,6 +19,9 @@ public class V4l2Structs {
     final static int V4L2_FIELD_NONE = 1;
     final static int V4L2_PIX_FMT_NV12 = 0x3231564E; // 'NV12'
     final static int V4L2_PIX_FMT_YUYV = 0x56595559;
+    static final int V4L2_PIX_FMT_MJPEG = (int) 1196444237L;
+    static final int V4L2_PIX_FMT_JPEG = (int) 1195724874L;
+
     final static int V4L2_MEMORY_MMAP = 1;
     final static int V4L2_MEMORY_DMABUF = 4;
     public static GroupLayout v4l2_pix_format = MemoryLayout.structLayout(
@@ -69,9 +72,38 @@ public class V4l2Structs {
         __u32   numerator;
         __u32   denominator;
 };
-    */
-    public static GroupLayout v4l2_fract = MemoryLayout.structLayout(
+     */
+ /*  
+    struct v4l2_streamparm {
+        __u32    type;                  // enum v4l2_buf_type
+        union {
+                struct v4l2_captureparm capture;
+                struct v4l2_outputparm  output;
+                __u8    raw_data[200];  // user-defined 
+        } parm;
+};
+    struct v4l2_captureparm {
+        __u32              capability;    //  Supported modes 
+        __u32              capturemode;   //  Current mode 
+        struct v4l2_fract  timeperframe;  //  Time per frame in seconds 
+        __u32              extendedmode;  //  Driver-specific extensions 
+        __u32              readbuffers;   //  # of buffers for read 
+        __u32              reserved[4];
+};
+     */
+    final public static GroupLayout v4l2_fract = MemoryLayout.structLayout(
             JAVA_INT.withName("numerator"),
             JAVA_INT.withName("denominator")
     );
+    public static GroupLayout v4l2_capture_streamparm = MemoryLayout.structLayout(
+            JAVA_INT.withName("type"),
+            JAVA_INT.withName("capability"),
+            JAVA_INT.withName("capturemode"),
+            v4l2_fract.withName("timeperframe"),
+            JAVA_INT.withName("extendedmode"),
+            JAVA_INT.withName("readbuffers"),
+            MemoryLayout.paddingLayout(16),// reserved
+            MemoryLayout.paddingLayout(200)// reserved
+    );
+
 }

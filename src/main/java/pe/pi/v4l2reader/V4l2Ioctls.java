@@ -27,7 +27,8 @@ public class V4l2Ioctls extends V4l2Structs {
     final static long VIDIOC_DQBUF = 3227014673L;
     final static long VIDIOC_S_FMT = 0xC0D05605L;
     final static long VIDIOC_QUERYBUF = 3227014665L;
-
+    final static long VIDIOC_S_PARM = 3234616854L;
+    
     final static int PROT_READ = 0x1, PROT_WRITE = 0x2, MAP_SHARED = 0x01; // strictly mmap not ioctl but hey...
     protected final Arena arena;
     protected final MethodHandle open;

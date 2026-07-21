@@ -14,7 +14,7 @@ public class ReadAndEncode {
      * @param args the command line arguments
      */
     public static void main(String[] args) {
-        Log.setLevel(Log.DEBUG);
+        Log.setLevel(Log.VERB);
         String adev = "/dev/media0";
         if (args.length > 0) {
             adev = args[0];
