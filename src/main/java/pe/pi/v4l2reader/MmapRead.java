@@ -28,15 +28,17 @@ public class MmapRead extends V4l2Ioctls implements MmapReader {
     int height;
 
     public MmapRead(String dev) throws Throwable {
-        this(dev, 1920, 1080,30,V4L2_PIX_FMT_NV12);
+        this(dev, 1920, 1080,30);
+    }
+    public MmapRead(String dev, int w, int h,int rate) throws Throwable {
+         this(dev, w,h,rate,V4L2_PIX_FMT_NV12);
     }
 
-    public MmapRead(String dev, int w, int h,int rate, int fmt) throws Throwable {
+    protected MmapRead(String dev, int w, int h,int rate, int fmt) throws Throwable {
         super();
         width = w;
         height = h;
         path = java.nio.file.Paths.get(dev);
-
         if (Files.isReadable(path)) {
             setup(rate,fmt);
         } else {

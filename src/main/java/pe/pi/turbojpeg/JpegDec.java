@@ -149,18 +149,68 @@ public class JpegDec {
         //DLLEXPORT unsigned long tjBufSizeYUV(int width, int height, int subsamp);
         tjBufSizeYUV2 = linker.downcallHandle(
                 tjLib.find("tjBufSizeYUV2").orElseThrow(),
-                FunctionDescriptor.of(JAVA_LONG,JAVA_INT,JAVA_INT,JAVA_INT,JAVA_INT)
+                FunctionDescriptor.of(JAVA_LONG, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT)
         );
         handle = (MemorySegment) tjInitDecompress.invokeExact();
         wp = arena.allocate(ValueLayout.JAVA_INT.byteSize());
         hp = arena.allocate(ValueLayout.JAVA_INT.byteSize());
         sap = arena.allocate(ValueLayout.JAVA_INT.byteSize());
         csp = arena.allocate(ValueLayout.JAVA_INT.byteSize());
-        flags = TJFLAG_FASTDCT | TJFLAG_FASTUPSAMPLE ;//| TJFLAG_STOPONWARNING;
+        flags = TJFLAG_FASTDCT | TJFLAG_FASTUPSAMPLE;//| TJFLAG_STOPONWARNING;
         jpegBuf = arena.allocate(512000);
         yuv = arena.allocate((1920 * 1080 * 2));
         Log.debug("Inited decoder");
 
+    }
+
+/** 
+ * remap the i420 data from to nv1 
+     * @param i420 input buffer - 3 planes Y U and V U and v are vertically sub-sampled. From camera or jpeg decode
+     * @param nv12 output buffer - 2 planes Y and UV where UV are vertically sub-sampled again. suitable for Nv12 encode in h264
+     * @param width original image width from camera or jpeg
+     * @param height original image height from camera or jpeg
+*/
+    public static void i420ToNV12(
+            ByteBuffer i420,
+            ByteBuffer nv12,
+            int width,
+            int height) {
+        int ySize = width * height;
+        int uvSize = ySize / 2; // input subsample
+
+        // Copy Y plane as is
+        nv12.clear();
+        nv12.put(0, i420, 0, ySize);
+
+        int uoffset = ySize; // input u plane start
+        int voffset = ySize + uvSize; // input v plane start
+        nv12.position(ySize); // output uv plane start
+        byte rowu[] = new byte[width]; // hold u values to be subsampled
+        byte rowv[] = new byte[width];// hold v values to be subsampled
+        int i = 0;
+        for (int r = 0; r < height / 2; r++) { // iterate over the input rows
+            for (int c = 0; c < width; c++) { // iterate over the input columns
+                if (r % 2 == 0) {
+                    // collect the data in an even row and stash it
+                    rowu[c] = i420.get(uoffset + i);
+                    rowv[c] = i420.get(voffset + i);
+                    i++;
+                } else {
+                    // collect the data in an odd row
+                    byte u = i420.get(uoffset + i);
+                    byte v = i420.get(voffset + i);
+                    i++;
+                    // then average it with the stash
+                    int umean = ((0xff & u) + (0xff & rowu[c])) / 2;
+                    int vmean = ((0xff & v) + (0xff & rowv[c])) / 2;
+                    // and write it out
+                    nv12.put((byte) umean);
+                    nv12.put((byte) vmean);
+                }
+            }
+        }
+        i420.clear();
+        nv12.flip();
     }
 
     public int decompress(ByteBuffer jpeg, ByteBuffer out) throws Throwable {
@@ -176,18 +226,19 @@ public class JpegDec {
             int w = wp.get(JAVA_INT, 0);
             int h = hp.get(JAVA_INT, 0);
             int sa = sap.get(JAVA_INT, 0);
+            int cs = csp.get(JAVA_INT, 0);
 
-            Log.debug("decoded  w = " + w + " h = " + h);
-            
-            long yuvsize= (long) tjBufSizeYUV2.invokeExact(w,1,h,sa);
-            Log.debug("decoded yuv buffer needs" + yuvsize+ " vs "+yuv.byteSize());
+            Log.debug("decoded  w = " + w + " h = " + h + " sa =" + sa + " cs=" + cs);
+
+            long yuvsize = (long) tjBufSizeYUV2.invokeExact(w, 1, h, sa);
+            Log.debug("decoded yuv buffer needs" + yuvsize + " vs " + yuv.byteSize());
 
             if ((w == width) && (h == height)) {
                 result = (int) tjDecompressToYUV2.invokeExact(handle, jpegBuf, jpegSize, yuv, w, 1, h, flags);
                 if (result != 0) {
                     /*var error = (MemorySegment) tjGetErrorStr.invokeExact();
                     String errs = error.getString(0);*/
-                    Log.error("Jpeg decode failed " + result );
+                    Log.error("Jpeg decode failed " + result);
                 } else {
                     out.position(0);
                     out.put(yuv.asByteBuffer());
