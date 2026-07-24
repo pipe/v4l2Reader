@@ -73,6 +73,7 @@ public class AmlMediaReader implements MmapReader {
     private int strategy;
     private int exmode;
     private final MethodHandle aml_debug_mode_set;
+    private V4l2Substitute v4l2Sub;
 
     public AmlMediaReader(String dev, int w, int h) throws Throwable {
         width = w;
@@ -207,7 +208,7 @@ public class AmlMediaReader implements MmapReader {
 
     private Long getExposure() {
         int estructLen = 168;
-        int ints = 168/4;
+        int ints = 168 / 4;
         MemorySegment attr = arena.allocate(estructLen);
 
         MemorySegment cmd = arena.allocate(MangledMediaAPI.aisp_api_type_tLayout);
@@ -472,10 +473,11 @@ public class AmlMediaReader implements MmapReader {
   return 0;
 }
 
-    */
+     */
     int stManual_enExpTimeOpTyp = 4;
     int stManual_u32ExpTime = 24;
-    int stAuto_enExposMode =44;
+    int stAuto_enExposMode = 44;
+
     void setExposureActual(Long v) {
         int estructLen = 168;
         int val = v.intValue();
@@ -493,26 +495,26 @@ public class AmlMediaReader implements MmapReader {
             Log.info("trying to get exposure settings ");
             algFwInterface.invokeExact(0, cmd);
             var bb = attr.asByteBuffer().order(ByteOrder.nativeOrder());
-            Log.info("bypass was "+bb.getInt(0));
-            bb.putInt(0,0);
-            Log.info("bypass will be "+bb.getInt(0));
-            
-            Log.info("stManual_enExpTimeOpTyp "+bb.getInt(stManual_enExpTimeOpTyp));
-            bb.putInt(stManual_enExpTimeOpTyp,((this.autoExposure == 1)?0:1));
-            Log.info("stManual_enExpTimeOpTyp "+bb.getInt(stManual_enExpTimeOpTyp));
-            
+            Log.info("bypass was " + bb.getInt(0));
+            bb.putInt(0, 0);
+            Log.info("bypass will be " + bb.getInt(0));
+
+            Log.info("stManual_enExpTimeOpTyp " + bb.getInt(stManual_enExpTimeOpTyp));
+            bb.putInt(stManual_enExpTimeOpTyp, ((this.autoExposure == 1) ? 0 : 1));
+            Log.info("stManual_enExpTimeOpTyp " + bb.getInt(stManual_enExpTimeOpTyp));
+
             int xmo = bb.getInt(stAuto_enExposMode);
-            Log.info("stAuto_enExposMode was "+xmo);
-            if (this.autoExposure==1) {
+            Log.info("stAuto_enExposMode was " + xmo);
+            if (this.autoExposure == 1) {
                 xmo++;
-                if (xmo > 4){
+                if (xmo > 4) {
                     xmo = 0;
                 }
             }
-            Log.info("stAuto_enExposMode will be "+xmo);
-            bb.putInt(stAuto_enExposMode,xmo);
+            Log.info("stAuto_enExposMode will be " + xmo);
+            bb.putInt(stAuto_enExposMode, xmo);
 
-            bb.putInt(stManual_u32ExpTime,val);
+            bb.putInt(stManual_u32ExpTime, val);
             direction.set(cmd, 0L, (byte) 0x1); //set
             Log.info("trying to set exposure settings ");
             algFwInterface.invokeExact(0, cmd);
@@ -841,98 +843,100 @@ public class AmlMediaReader implements MmapReader {
 
     public V4l2Substitute getV4l2Sub() {
         final var that = this;
-        return new V4l2Substitute() {
+        if (v4l2Sub == null) {
+            v4l2Sub = new V4l2Substitute() {
 
-            @Override
-            public void setBrightness(Long v) {
-                Integer[] o = getCsC();
-                o[CsCNames.brightness.ordinal()] = v.intValue();
-                setCsC(o);
-            }
+                @Override
+                public void setBrightness(Long v) {
+                    Integer[] o = getCsC();
+                    o[CsCNames.brightness.ordinal()] = v.intValue();
+                    setCsC(o);
+                }
 
-            @Override
-            public void setHue(Long v) {
-                Integer[] o = getCsC();
-                o[CsCNames.hue.ordinal()] = v.intValue();
-                setCsC(o);
-            }
+                @Override
+                public void setHue(Long v) {
+                    Integer[] o = getCsC();
+                    o[CsCNames.hue.ordinal()] = v.intValue();
+                    setCsC(o);
+                }
 
-            @Override
-            public void setContrast(Long v) {
-                Integer[] o = getCsC();
-                o[CsCNames.contrast.ordinal()] = v.intValue();
-                setCsC(o);
-            }
+                @Override
+                public void setContrast(Long v) {
+                    Integer[] o = getCsC();
+                    o[CsCNames.contrast.ordinal()] = v.intValue();
+                    setCsC(o);
+                }
 
-            @Override
-            public void setSaturation(Long v) {
-                Integer[] o = getCsC();
-                o[CsCNames.saturation.ordinal()] = v.intValue();
-                setCsC(o);
-            }
+                @Override
+                public void setSaturation(Long v) {
+                    Integer[] o = getCsC();
+                    o[CsCNames.saturation.ordinal()] = v.intValue();
+                    setCsC(o);
+                }
 
-            @Override
-            public void setExposure(Long v) {
-                that.setExposure(v);
-            }
+                @Override
+                public void setExposure(Long v) {
+                    that.setExposure(v);
+                }
 
-            @Override
-            public Long getBrightness() {
-                Integer[] o = getCsC();
-                return Long.valueOf(o[CsCNames.brightness.ordinal()]);
-            }
+                @Override
+                public Long getBrightness() {
+                    Integer[] o = getCsC();
+                    return Long.valueOf(o[CsCNames.brightness.ordinal()]);
+                }
 
-            @Override
-            public Long getHue() {
-                Integer[] o = getCsC();
-                return Long.valueOf(o[CsCNames.hue.ordinal()]);
-            }
+                @Override
+                public Long getHue() {
+                    Integer[] o = getCsC();
+                    return Long.valueOf(o[CsCNames.hue.ordinal()]);
+                }
 
-            @Override
-            public Long getContrast() {
-                Integer[] o = getCsC();
-                return Long.valueOf(o[CsCNames.contrast.ordinal()]);
-            }
+                @Override
+                public Long getContrast() {
+                    Integer[] o = getCsC();
+                    return Long.valueOf(o[CsCNames.contrast.ordinal()]);
+                }
 
-            @Override
-            public Long getExposure() {
-                return that.getExposure();
-            }
+                @Override
+                public Long getExposure() {
+                    return that.getExposure();
+                }
 
-            @Override
-            public Long getSaturation() {
-                Integer[] o = getCsC();
-                return Long.valueOf(o[CsCNames.saturation.ordinal()]);
-            }
+                @Override
+                public Long getSaturation() {
+                    Integer[] o = getCsC();
+                    return Long.valueOf(o[CsCNames.saturation.ordinal()]);
+                }
 
-            @Override
-            public void setAERoi(Long v) {
-                that.setAERoi(v);
-            }
+                @Override
+                public void setAERoi(Long v) {
+                    that.setAERoi(v);
+                }
 
-            @Override
-            public Long getAERoi() {
-                return that.getAERoi();
-            }
+                @Override
+                public Long getAERoi() {
+                    return that.getAERoi();
+                }
 
-            @Override
-            public String getSensorName() {
-                return that.getSensorName();
-            }
+                @Override
+                public String getSensorName() {
+                    return that.getSensorName();
+                }
 
-            @Override
-            public String getAE() {
-                return that.getAE();
+                @Override
+                public String getAE() {
+                    return that.getAE();
 
-            }
+                }
 
-            @Override
-            public void setAE(Long v) {
-                that.setAE(v);
+                @Override
+                public void setAE(Long v) {
+                    that.setAE(v);
 
-            }
-
-        };
+                }
+            };
+        }
+        return this.v4l2Sub;
     }
 
     class V4l2Buffer {

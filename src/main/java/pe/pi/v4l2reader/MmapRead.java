@@ -192,6 +192,11 @@ ioctl(fd, VIDIOC_S_PARM, &streamparm);
         return count;
     }
 
+    @Override
+    public V4l2Substitute getV4l2Sub() {
+        return null; // execing v4l2-ctl works fine....
+    }
+
     class V4l2Buffer {
 
         MemorySegment buf;

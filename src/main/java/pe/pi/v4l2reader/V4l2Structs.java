@@ -22,6 +22,26 @@ public class V4l2Structs {
     static final int V4L2_PIX_FMT_MJPEG = (int) 1196444237L;
     static final int V4L2_PIX_FMT_JPEG = (int) 1195724874L;
 
+    static final int V4L2_CID_BASE = 0x00980900;
+    static final int V4L2_CID_BRIGHTNESS = (V4L2_CID_BASE + 0);
+    static final int V4L2_CID_CONTRAST = (V4L2_CID_BASE + 1);
+    static final int V4L2_CID_SATURATION = (V4L2_CID_BASE + 2);
+    static final int V4L2_CID_HUE = (V4L2_CID_BASE + 3);
+    static final int V4L2_CID_BLACK_LEVEL = (V4L2_CID_BASE + 11);/* Deprecated */
+    static final int V4L2_CID_AUTO_WHITE_BALANCE = (V4L2_CID_BASE + 12);
+    static final int V4L2_CID_DO_WHITE_BALANCE = (V4L2_CID_BASE + 13);
+    static final int V4L2_CID_GAMMA = (V4L2_CID_BASE + 16);
+    static final int V4L2_CID_EXPOSURE = (V4L2_CID_BASE + 17);
+    static final int V4L2_CID_AUTOGAIN = (V4L2_CID_BASE + 18);
+    static final int V4L2_CID_GAIN = (V4L2_CID_BASE + 19);
+    static final int V4L2_CID_WHITE_BALANCE_TEMPERATURE = (V4L2_CID_BASE + 26);
+    static final int V4L2_CID_AE = 0x009a0901; // cheating....
+    static final int V4L2_isp_ae_roi = 0x00f0f025; // really cheating
+
+    // struct v4l2_control {
+    //     __u32 id;
+    //     __s32 value;
+    // };
     final static int V4L2_MEMORY_MMAP = 1;
     final static int V4L2_MEMORY_DMABUF = 4;
     public static GroupLayout v4l2_pix_format = MemoryLayout.structLayout(
@@ -105,5 +125,14 @@ public class V4l2Structs {
             MemoryLayout.paddingLayout(16),// reserved
             MemoryLayout.paddingLayout(200)// reserved
     );
+    // struct v4l2_control {
+    //     __u32 id;
+    //     __s32 value;
+    // };
+
+    public static final GroupLayout v4l2_control
+            = MemoryLayout.structLayout(
+                    JAVA_INT.withName("id"),
+                    JAVA_INT.withName("value"));
 
 }

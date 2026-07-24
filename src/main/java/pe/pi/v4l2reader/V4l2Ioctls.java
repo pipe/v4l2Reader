@@ -28,7 +28,10 @@ public class V4l2Ioctls extends V4l2Structs {
     final static long VIDIOC_S_FMT = 0xC0D05605L;
     final static long VIDIOC_QUERYBUF = 3227014665L;
     final static long VIDIOC_S_PARM = 3234616854L;
-    
+
+    static final long VIDIOC_G_CTRL = 0xC008561B;
+    static final long VIDIOC_S_CTRL = 0xC008561C;
+
     final static int PROT_READ = 0x1, PROT_WRITE = 0x2, MAP_SHARED = 0x01; // strictly mmap not ioctl but hey...
     protected final Arena arena;
     protected final MethodHandle open;
@@ -39,10 +42,10 @@ public class V4l2Ioctls extends V4l2Structs {
     protected final MemorySegment videoCapture;
     static final Linker linker = Linker.nativeLinker();
 
-    public V4l2Ioctls(){
+    public V4l2Ioctls() {
         super();
 
-        arena = Arena.ofConfined();
+        arena = Arena.ofAuto();
         libc = linker.defaultLookup(); //
 
         open = linker.downcallHandle(

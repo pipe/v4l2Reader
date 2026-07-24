@@ -51,8 +51,6 @@ int jpeg_to_yuv420p(
 package pe.pi.turbojpeg;
 
 import com.phono.srtplight.Log;
-import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
 import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
@@ -68,7 +66,6 @@ import java.nio.file.Files;
 import java.nio.file.OpenOption;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
-import javax.imageio.ImageIO;
 
 /**
  *

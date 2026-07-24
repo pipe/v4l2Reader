@@ -17,5 +17,7 @@ public interface MmapReader {
     public ByteBuffer read() throws Throwable;
 
     public void stop() throws Throwable;
+
+    public V4l2Substitute getV4l2Sub();
     
 }
