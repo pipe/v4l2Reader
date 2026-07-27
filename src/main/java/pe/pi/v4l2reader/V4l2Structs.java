@@ -31,12 +31,13 @@ public class V4l2Structs {
     static final int V4L2_CID_AUTO_WHITE_BALANCE = (V4L2_CID_BASE + 12);
     static final int V4L2_CID_DO_WHITE_BALANCE = (V4L2_CID_BASE + 13);
     static final int V4L2_CID_GAMMA = (V4L2_CID_BASE + 16);
-    static final int V4L2_CID_EXPOSURE = (V4L2_CID_BASE + 17);
+   // static final int V4L2_CID_EXPOSURE = (V4L2_CID_BASE + 17);
     static final int V4L2_CID_AUTOGAIN = (V4L2_CID_BASE + 18);
     static final int V4L2_CID_GAIN = (V4L2_CID_BASE + 19);
     static final int V4L2_CID_WHITE_BALANCE_TEMPERATURE = (V4L2_CID_BASE + 26);
     static final int V4L2_CID_AE = 0x009a0901; // cheating....
     static final int V4L2_isp_ae_roi = 0x00f0f025; // really cheating
+    static final int V4L2_CID_EXPOSURE =0x009a0902; // likewise...
 
     // struct v4l2_control {
     //     __u32 id;

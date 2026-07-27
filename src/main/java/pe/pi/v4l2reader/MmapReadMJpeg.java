@@ -282,6 +282,8 @@ public class MmapReadMJpeg extends MmapRead {
                 } catch (Throwable t) {
                     Log.warn("Can't set AE");
                 }
+            } else {
+                setBasicV4l2Control(V4L2_CID_AE, v.intValue());
             }
             ae_auto = v;
         }
