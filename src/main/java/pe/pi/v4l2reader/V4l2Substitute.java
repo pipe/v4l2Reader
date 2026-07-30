@@ -1,5 +1,6 @@
 package pe.pi.v4l2reader;
 
+
 /**
  *
  * @author thp
@@ -35,5 +36,9 @@ public interface V4l2Substitute {
     public String getAE();
 
     public void setAE(Long v);
+    
+    public void setOther(String name,Long v);
+    public Long getOther(String name);
+    
 
 }

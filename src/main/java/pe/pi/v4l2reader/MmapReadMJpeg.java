@@ -10,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.OpenOption;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.util.HashMap;
 import pe.pi.amlh264enc.Encoder;
 import pe.pi.sonixcam.SonixCameraAPI;
 import pe.pi.turbojpeg.JpegDec;
@@ -163,12 +164,14 @@ public class MmapReadMJpeg extends MmapRead {
         return v4l2Sub;
     }
 
-    class SonixV4l2Substitute implements V4l2Substitute {
+    class SonixV4l2Substitute implements V4l2Substitute, ControlMapper {
 
         String sensorName;
         Long ae_roi = 0L;
         Long ae_auto = 1L;
         SonixCameraAPI sapi;
+        HashMap<String, V4l2ExtControl> mycontrolmap;
+    
 
         SonixV4l2Substitute() {
             sensorName = "unknown";
@@ -286,6 +289,40 @@ public class MmapReadMJpeg extends MmapRead {
                 setBasicV4l2Control(V4L2_CID_AE, v.intValue());
             }
             ae_auto = v;
+        }
+
+        @Override
+        public HashMap<String, V4l2ExtControl> getMapOfControls() {
+            if (mycontrolmap == null){
+                mycontrolmap = MmapReadMJpeg.this.getMapOfControls();
+                if ((sapi != null) && sapi.inited()) {
+                    V4l2ExtControl roi = new V4l2ExtControl(0xcafebabe, 1, "isp_ae_roi", Integer.MAX_VALUE, Integer.MIN_VALUE, 1L);
+                    mycontrolmap.put("isp_ae_roi",roi);
+                    V4l2ExtControl ae = new V4l2ExtControl(0xabad1dea, 1, "auto_exposure", 3, 1, 1L);
+                    mycontrolmap.put("auto_exposure",ae);
+                }
+            }
+            return mycontrolmap;
+        }
+
+        @Override
+        public void setOther(String name, Long v) {
+            var cmap = getMapOfControls();
+            var ctl = cmap.get(name);
+            if (ctl != null) {
+                setBasicV4l2Control(ctl.getId(), v.intValue());
+            }
+        }
+
+        @Override
+        public Long getOther(String name) {
+            Long ret = null;
+            var cmap = getMapOfControls();
+            var ctl = cmap.get(name);
+            if (ctl != null) {
+                ret = Long.valueOf(getBasicV4l2Control(ctl.getId()));
+            }
+            return ret;
         }
 
     }

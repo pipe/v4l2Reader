@@ -6,8 +6,10 @@ package pe.pi.v4l2reader;
 
 import java.lang.foreign.GroupLayout;
 import java.lang.foreign.MemoryLayout;
+import java.lang.foreign.ValueLayout;
 import static java.lang.foreign.ValueLayout.JAVA_INT;
 import static java.lang.foreign.ValueLayout.JAVA_LONG;
+import pe.pi.v4l2reader.mediaApi.mediaAPI;
 
 /**
  *
@@ -31,13 +33,15 @@ public class V4l2Structs {
     static final int V4L2_CID_AUTO_WHITE_BALANCE = (V4L2_CID_BASE + 12);
     static final int V4L2_CID_DO_WHITE_BALANCE = (V4L2_CID_BASE + 13);
     static final int V4L2_CID_GAMMA = (V4L2_CID_BASE + 16);
-   // static final int V4L2_CID_EXPOSURE = (V4L2_CID_BASE + 17);
+    // static final int V4L2_CID_EXPOSURE = (V4L2_CID_BASE + 17);
     static final int V4L2_CID_AUTOGAIN = (V4L2_CID_BASE + 18);
     static final int V4L2_CID_GAIN = (V4L2_CID_BASE + 19);
     static final int V4L2_CID_WHITE_BALANCE_TEMPERATURE = (V4L2_CID_BASE + 26);
     static final int V4L2_CID_AE = 0x009a0901; // cheating....
     static final int V4L2_isp_ae_roi = 0x00f0f025; // really cheating
-    static final int V4L2_CID_EXPOSURE =0x009a0902; // likewise...
+    static final int V4L2_CID_EXPOSURE = 0x009a0902; // likewise...
+    static final int V4L2_CTRL_MAX_DIMS = (4);
+    static final int V4L2_CTRL_FLAG_NEXT_CTRL = 0x80000000;
 
     // struct v4l2_control {
     //     __u32 id;
@@ -45,7 +49,7 @@ public class V4l2Structs {
     // };
     final static int V4L2_MEMORY_MMAP = 1;
     final static int V4L2_MEMORY_DMABUF = 4;
-    public static GroupLayout v4l2_pix_format = MemoryLayout.structLayout(
+    final public static GroupLayout v4l2_pix_format = MemoryLayout.structLayout(
             JAVA_INT.withName("width"),
             JAVA_INT.withName("height"),
             JAVA_INT.withName("pixelformat"),
@@ -136,4 +140,35 @@ public class V4l2Structs {
                     JAVA_INT.withName("id"),
                     JAVA_INT.withName("value"));
 
-}
+    /* struct v4l2_query_ext_ctrl {
+        __u32                id;
+        __u32                type;
+        char                 name[32];
+        __s64                minimum;
+        __s64                maximum;
+        __u64                step;
+        __s64                default_value;
+        __u32                flags;
+        __u32                elem_size;
+        __u32                elems;
+        __u32                nr_of_dims;
+        __u32                dims[V4L2_CTRL_MAX_DIMS];
+        __u32                reserved[32];
+     */
+    public static final GroupLayout v4l2_query_ext_ctrl
+            = MemoryLayout.structLayout(
+                    JAVA_INT.withName("id"),
+                    JAVA_INT.withName("type"),
+                    MemoryLayout.sequenceLayout(32, ValueLayout.JAVA_BYTE).withName("cname"),
+                    JAVA_LONG.withName("minimum"),
+                    JAVA_LONG.withName("maximum"),
+                    JAVA_LONG.withName("step"),
+                    JAVA_LONG.withName("default_value"),
+                    JAVA_INT.withName("flags"),
+                    JAVA_INT.withName("elem_size"),
+                    JAVA_INT.withName("elems"),
+                    JAVA_INT.withName("nr_of_dims"),
+                    MemoryLayout.sequenceLayout(V4L2_CTRL_MAX_DIMS, ValueLayout.JAVA_INT).withName("dims"),
+                    MemoryLayout.paddingLayout(32*4)); // reserved
+
+};

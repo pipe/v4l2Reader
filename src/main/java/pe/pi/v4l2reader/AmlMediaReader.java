@@ -934,6 +934,17 @@ public class AmlMediaReader implements MmapReader {
                     that.setAE(v);
 
                 }
+
+                @Override
+                public void setOther(String name, Long v) {
+                    throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
+                }
+
+                @Override
+                public Long getOther(String name) {
+                    throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
+                }
+
             };
         }
         return this.v4l2Sub;

@@ -7,6 +7,7 @@ import static java.lang.foreign.ValueLayout.*;
 import static java.lang.foreign.MemoryLayout.PathElement.*;
 import java.util.function.Consumer;
 import java.nio.ByteBuffer;
+import java.util.HashMap;
 import static pe.pi.v4l2reader.V4l2Ioctls.MAP_SHARED;
 import static pe.pi.v4l2reader.V4l2Ioctls.PROT_READ;
 import static pe.pi.v4l2reader.V4l2Ioctls.PROT_WRITE;
@@ -18,7 +19,7 @@ import static pe.pi.v4l2reader.V4l2Ioctls.VIDIOC_QUERYBUF;
  *
  * @author thp
  */
-public class MmapRead extends V4l2Ioctls implements MmapReader {
+public class MmapRead extends V4l2Ioctls implements MmapReader, ControlMapper {
 
     java.nio.file.Path path;
 
@@ -26,21 +27,23 @@ public class MmapRead extends V4l2Ioctls implements MmapReader {
     int videoDev = 0;
     int width;
     int height;
+    private HashMap<String, V4l2ExtControl> controlMap;
 
     public MmapRead(String dev) throws Throwable {
-        this(dev, 1920, 1080,30);
-    }
-    public MmapRead(String dev, int w, int h,int rate) throws Throwable {
-         this(dev, w,h,rate,V4L2_PIX_FMT_NV12);
+        this(dev, 1920, 1080, 30);
     }
 
-    protected MmapRead(String dev, int w, int h,int rate, int fmt) throws Throwable {
+    public MmapRead(String dev, int w, int h, int rate) throws Throwable {
+        this(dev, w, h, rate, V4L2_PIX_FMT_NV12);
+    }
+
+    protected MmapRead(String dev, int w, int h, int rate, int fmt) throws Throwable {
         super();
         width = w;
         height = h;
         path = java.nio.file.Paths.get(dev);
         if (Files.isReadable(path)) {
-            setup(rate,fmt);
+            setup(rate, fmt);
         } else {
             Log.error("cant read " + path);
         }
@@ -90,7 +93,7 @@ public class MmapRead extends V4l2Ioctls implements MmapReader {
         }
     }
 
-    public int setup(int framerate, int format ) throws Throwable {
+    public int setup(int framerate, int format) throws Throwable {
         // Define native methods
         final int O_RDWR = 2;
 
@@ -108,8 +111,8 @@ public class MmapRead extends V4l2Ioctls implements MmapReader {
         videoDev = fd;
         Log.debug("opened " + path);
 
-        setFormat(libc, arena, fd,format );
-        setSpeed(libc, arena, fd,framerate);
+        setFormat(libc, arena, fd, format);
+        setSpeed(libc, arena, fd, framerate);
 
         Log.debug("set format for " + path);
 
@@ -132,16 +135,15 @@ streamparm.parm.capture.timeperframe.numerator = 1;
 streamparm.parm.capture.timeperframe.denominator = 15; // 15 fps
 ioctl(fd, VIDIOC_S_PARM, &streamparm);
      */
-
     public void setSpeed(SymbolLookup libc, Arena arena, int fd, int fr) throws Throwable {
         MemorySegment param = arena.allocate(v4l2_capture_streamparm);
         param.set(JAVA_INT, v4l2_capture_streamparm.byteOffset(groupElement("type")), V4L2_BUF_TYPE_VIDEO_CAPTURE);
         param.set(JAVA_INT,
-                v4l2_capture_streamparm.byteOffset(groupElement("timeperframe") ,groupElement("numerator")),
-                 1);
+                v4l2_capture_streamparm.byteOffset(groupElement("timeperframe"), groupElement("numerator")),
+                1);
         param.set(JAVA_INT,
-                v4l2_capture_streamparm.byteOffset(groupElement("timeperframe") ,groupElement("denominator")),
-                 fr);
+                v4l2_capture_streamparm.byteOffset(groupElement("timeperframe"), groupElement("denominator")),
+                fr);
         int result = (int) ioctl.invoke(fd, VIDIOC_S_PARM, param);
         if (result < 0) {
             Log.error("ioctl VIDIOC_S_PARM failed");
@@ -195,6 +197,49 @@ ioctl(fd, VIDIOC_S_PARM, &streamparm);
     @Override
     public V4l2Substitute getV4l2Sub() {
         return null; // execing v4l2-ctl works fine....
+    }
+
+    @Override
+    public HashMap<String, V4l2ExtControl> getMapOfControls() {
+        if (controlMap == null) {
+            Log.debug("Map is empty");
+            try {
+                var tmap = new HashMap<String, V4l2ExtControl>();
+                Log.debug("Map is being filled...");
+
+                MemorySegment q = arena.allocate(v4l2_query_ext_ctrl);
+                int result;
+                int n = 0;
+                q.set(JAVA_INT, v4l2_query_ext_ctrl.byteOffset(groupElement("id")), V4L2_CTRL_FLAG_NEXT_CTRL);
+                do {
+                    Log.debug("invoke ioctl " + VIDIOC_QUERY_EXT_CTRL);
+
+                    result = (int) ioctl.invoke(videoDev, VIDIOC_QUERY_EXT_CTRL, q);
+                    Log.debug("result is " + result);
+
+                    if (result == 0) {
+                        int id = q.get(JAVA_INT, v4l2_query_ext_ctrl.byteOffset(groupElement("id")));
+                        int type = q.get(JAVA_INT, v4l2_query_ext_ctrl.byteOffset(groupElement("type")));
+                        long max = q.get(JAVA_LONG, v4l2_query_ext_ctrl.byteOffset(groupElement("maximum")));
+                        long min = q.get(JAVA_LONG, v4l2_query_ext_ctrl.byteOffset(groupElement("minimum")));
+                        long step = q.get(JAVA_LONG, v4l2_query_ext_ctrl.byteOffset(groupElement("step")));
+                        String name = q.getString(v4l2_query_ext_ctrl.byteOffset(groupElement("cname")));
+                        //String name = "control:" + n++;
+                        V4l2ExtControl x = new V4l2ExtControl(id, type, name, max, min, step);
+                        tmap.put(x.getAname(), x);
+                        id |= V4L2_CTRL_FLAG_NEXT_CTRL;
+                        q.set(JAVA_INT, v4l2_query_ext_ctrl.byteOffset(groupElement("id")), id);
+                        Log.debug("found " + x);
+                    } else {
+                        break;
+                    }
+                } while (true);
+                controlMap = tmap;
+            } catch (Throwable t) {
+                Log.error("cant list v4l2 controls " + t.getMessage());
+            }
+        }
+        return controlMap;
     }
 
     class V4l2Buffer {
@@ -331,6 +376,43 @@ ioctl(fd, VIDIOC_S_PARM, &streamparm);
         res = (int) close.invoke(videoDev);
         if (res != 0) {
             System.err.println("close failed");
+        }
+    }
+
+    public static void main(String[] args) {
+        Log.setLevel(Log.VERB);
+        String adev = "/dev/video0";
+        if (args.length > 0) {
+            adev = args[0];
+        }
+        try {
+            var mmap = new MmapRead(adev) {
+                @Override
+                public int setup(int framerate, int format) throws Throwable {
+                    // Define native methods
+                    final int O_RDWR = 2;
+
+                    Log.debug("in fake setup()");
+
+                    Log.debug("common functions allocated");
+
+                    MemorySegment devName = arena.allocateFrom(path.toString());
+
+                    int fd = (int) open.invoke(devName, O_RDWR);
+                    if (fd < 0) {
+                        Log.error("Failed to open video device");
+                        return fd;
+                    }
+                    videoDev = fd;
+                    Log.debug("opened " + path);
+
+                    return fd;
+                }
+
+            };
+            mmap.getMapOfControls();
+        } catch (Throwable t) {
+            Log.error("cant open " + adev);
         }
     }
 

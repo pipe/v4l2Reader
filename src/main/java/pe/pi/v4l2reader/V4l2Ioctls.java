@@ -31,6 +31,8 @@ public class V4l2Ioctls extends V4l2Structs {
 
     static final long VIDIOC_G_CTRL = 0xC008561B;
     static final long VIDIOC_S_CTRL = 0xC008561C;
+    static final int VIDIOC_QUERY_EXT_CTRL = 0xC0E85667;
+
 
     final static int PROT_READ = 0x1, PROT_WRITE = 0x2, MAP_SHARED = 0x01; // strictly mmap not ioctl but hey...
     protected final Arena arena;
