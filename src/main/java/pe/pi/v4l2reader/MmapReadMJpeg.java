@@ -22,8 +22,15 @@ import static pe.pi.v4l2reader.V4l2Structs.V4L2_CID_EXPOSURE;
  */
 public class MmapReadMJpeg extends MmapRead {
 
+    final static int TJSAMP_444 = 0;
+    final static int TJSAMP_422 =1;
+    final static int TJSAMP_420 =2;
+    final static int TJSAMP_GRAY =3;
+    final static int TJSAMP_440 = 4;
+    final static int TJSAMP_411 =5;
+    
     private final JpegDec decoder;
-    private final ByteBuffer i420;
+    private final ByteBuffer i4xx;
     private final ByteBuffer nv12;
     private SonixV4l2Substitute v4l2Sub;
 
@@ -69,10 +76,10 @@ public class MmapReadMJpeg extends MmapRead {
     public MmapReadMJpeg(String dev, int w, int h, int rate) throws Throwable {
         super(dev, w, h, rate, V4L2_PIX_FMT_MJPEG);
 
-        decoder = new JpegDec(1920, 1080);
-        i420 = ByteBuffer.allocate(2 * 1920 * 1080);
-        nv12 = ByteBuffer.allocate(3 * 1920 * 1080 / 2);
-        Log.debug("i420 is " + i420.capacity());
+        decoder = new JpegDec(w, h);
+        i4xx = ByteBuffer.allocate(2 * w * h);
+        nv12 = ByteBuffer.allocate(3 * w * h / 2);
+        Log.debug("i4xx is " + i4xx.capacity());
         Log.debug("nv12 is " + nv12.capacity());
     }
 
@@ -86,16 +93,28 @@ public class MmapReadMJpeg extends MmapRead {
             frame.flip();
             // Files.write(peg, fbuffer, options);
 
-            int r = decoder.decompress(frame, i420);
-            //Files.write(f420, i420.array(), options);
+            int r = decoder.decompress(frame, i4xx);
+            //Files.write(f420, i4xx.array(), options);
 
-            if (r == 0) {
-                Log.debug("i420 frame of " + i420.remaining());
-                JpegDec.i420ToNV12(i420, nv12, 1920, 1080);
-                //Files.write(fnv12, nv12.array(), options);
-
-                Log.debug("nv12 frame of " + nv12.remaining());
-                ret = nv12;
+            if (r >= 0) {
+                switch (r) {
+                    case TJSAMP_420 -> {
+                        Log.debug("i420 frame of " + i4xx.remaining());
+                        JpegDec.i420ToNV12(i4xx, nv12, width, height);
+                        Log.debug("nv12 frame of " + nv12.remaining());
+                        ret = nv12;
+                    }
+                    case TJSAMP_422 -> {
+                        Log.debug("i422 frame of " + i4xx.remaining());
+                        JpegDec.i422ToNV12(i4xx, nv12, width, height);
+                        Log.debug("nv12 frame of " + nv12.remaining());
+                        ret = nv12;
+                    }
+                    default -> {
+                        Log.debug("unexpected jpec frame decode  frame of "+r);
+                        ret = i4xx;
+                    }
+                }
             } else {
                 Log.error("couldn't de compress jpeg");
             }
@@ -171,7 +190,6 @@ public class MmapReadMJpeg extends MmapRead {
         Long ae_auto = 1L;
         SonixCameraAPI sapi;
         HashMap<String, V4l2ExtControl> mycontrolmap;
-    
 
         SonixV4l2Substitute() {
             sensorName = "unknown";
@@ -293,13 +311,13 @@ public class MmapReadMJpeg extends MmapRead {
 
         @Override
         public HashMap<String, V4l2ExtControl> getMapOfControls() {
-            if (mycontrolmap == null){
+            if (mycontrolmap == null) {
                 mycontrolmap = MmapReadMJpeg.this.getMapOfControls();
                 if ((sapi != null) && sapi.inited()) {
                     V4l2ExtControl roi = new V4l2ExtControl(0xcafebabe, 1, "isp_ae_roi", Integer.MAX_VALUE, Integer.MIN_VALUE, 1L);
-                    mycontrolmap.put("isp_ae_roi",roi);
+                    mycontrolmap.put("isp_ae_roi", roi);
                     V4l2ExtControl ae = new V4l2ExtControl(0xabad1dea, 1, "auto_exposure", 3, 1, 1L);
-                    mycontrolmap.put("auto_exposure",ae);
+                    mycontrolmap.put("auto_exposure", ae);
                 }
             }
             return mycontrolmap;

@@ -23,6 +23,7 @@ public class V4l2Structs {
     final static int V4L2_PIX_FMT_YUYV = 0x56595559;
     static final int V4L2_PIX_FMT_MJPEG = (int) 1196444237L;
     static final int V4L2_PIX_FMT_JPEG = (int) 1195724874L;
+    static final int V4L2_PIX_FMT_H264 = (int)875967048L;
 
     static final int V4L2_CID_BASE = 0x00980900;
     static final int V4L2_CID_BRIGHTNESS = (V4L2_CID_BASE + 0);
