@@ -7,7 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.OpenOption;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
-import pe.pi.amlh264enc.Encoder;
+import pe.pi.amlh264enc.AMLEncoder;
 import pe.pi.libav.H264Dec;
 
 /**
@@ -80,7 +80,7 @@ public class MmapReadAndDecodeH264 extends MmapRead {
         }
         try {
             int w = 1920; int h=1080;
-            var encoder = new Encoder(w, h, 0, false, 30, false);
+            var encoder = new AMLEncoder(w, h, 0, false, 30, false);
             OpenOption[] options = {StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE, StandardOpenOption.CREATE};
 
             MmapReadAndDecodeH264 reader = new MmapReadAndDecodeH264(adev, w, h, 30) {

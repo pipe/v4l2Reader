@@ -7,8 +7,11 @@ package pe.pi.v4l2reader;
 import java.lang.foreign.GroupLayout;
 import java.lang.foreign.MemoryLayout;
 import java.lang.foreign.ValueLayout;
+import static java.lang.foreign.ValueLayout.ADDRESS;
+import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 import static java.lang.foreign.ValueLayout.JAVA_INT;
 import static java.lang.foreign.ValueLayout.JAVA_LONG;
+import static java.lang.foreign.ValueLayout.JAVA_SHORT;
 import pe.pi.v4l2reader.mediaApi.mediaAPI;
 
 /**
@@ -23,7 +26,7 @@ public class V4l2Structs {
     final static int V4L2_PIX_FMT_YUYV = 0x56595559;
     static final int V4L2_PIX_FMT_MJPEG = (int) 1196444237L;
     static final int V4L2_PIX_FMT_JPEG = (int) 1195724874L;
-    static final int V4L2_PIX_FMT_H264 = (int)875967048L;
+    static final int V4L2_PIX_FMT_H264 = (int) 875967048L;
 
     static final int V4L2_CID_BASE = 0x00980900;
     static final int V4L2_CID_BRIGHTNESS = (V4L2_CID_BASE + 0);
@@ -170,6 +173,24 @@ public class V4l2Structs {
                     JAVA_INT.withName("elems"),
                     JAVA_INT.withName("nr_of_dims"),
                     MemoryLayout.sequenceLayout(V4L2_CTRL_MAX_DIMS, ValueLayout.JAVA_INT).withName("dims"),
-                    MemoryLayout.paddingLayout(32*4)); // reserved
+                    MemoryLayout.paddingLayout(32 * 4)); // reserved
 
+    /* 
+    struct uvc_xu_control_query {
+        __u8 unit;
+        __u8 selector;
+        __u8 query;             // Video Class-Specific Request Code, 
+                                // defined in linux/usb/video.h A.8.  
+        __u16 size;
+        __u8 *data;
+        };
+     */
+    public static final GroupLayout uvc_xu_control_query = MemoryLayout.structLayout(
+            JAVA_BYTE.withName("unit"),
+            JAVA_BYTE.withName("selector"),
+            JAVA_BYTE.withName("query"),
+            MemoryLayout.paddingLayout(1), // Align __u16 to 2 bytes
+            JAVA_SHORT.withName("size"),
+            MemoryLayout.paddingLayout(2), // Align pointer to 2 bytes
+            ADDRESS.withName("data"));
 };

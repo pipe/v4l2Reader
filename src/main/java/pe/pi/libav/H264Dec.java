@@ -317,8 +317,10 @@ public class H264Dec extends Decoder implements AutoCloseable {
             } catch (Throwable t) {
             }
         });
-        /*ctx.setAtIndex(JAVA_INT, AVCODECCONTEXTFLAGSOFFS, AV_CODEC_FLAG_LOW_DELAY);
-        ctx.setAtIndex(JAVA_INT,AVCODECCONTEXTTHREADS , 4);*/
+        int ccflags =  (int) ctx.get(JAVA_INT, AVCODECCONTEXTFLAGSOFFS);
+        ccflags |= AV_CODEC_FLAG_LOW_DELAY ;
+        ctx.set(JAVA_INT, AVCODECCONTEXTFLAGSOFFS, ccflags);
+        //ctx.setAtIndex(JAVA_INT,AVCODECCONTEXTTHREADS , 4);
 
         /*
             d->ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;

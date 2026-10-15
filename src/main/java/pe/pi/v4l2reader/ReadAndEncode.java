@@ -2,6 +2,7 @@ package pe.pi.v4l2reader;
 
 import com.phono.srtplight.Log;
 import java.nio.ByteBuffer;
+import pe.pi.amlh264enc.AMLEncoder;
 import pe.pi.amlh264enc.Encoder;
 
 /**
@@ -21,7 +22,7 @@ public class ReadAndEncode {
         }
         try {
             Encoder encoder;
-            encoder = new Encoder(1920, 1080);
+            encoder = new AMLEncoder(1920, 1080);
 
             MmapRead reader = new MmapRead(adev) {
                 @Override

@@ -168,7 +168,7 @@ public class JpegDec extends Decoder {
             jpegBuf = arena.allocate(jpegSize);
         }
         jpegBuf.asByteBuffer().put(jpeg);
-        Log.debug("about to decode header");
+        Log.debug("about to decode header from jpeg of "+jpegSize+" bytes");
         int ret = -1;
         int result = (int) tjDecompressHeader3.invokeExact(handle, jpegBuf, jpegSize, wp, hp, sap, csp);
         if (result == 0) {
@@ -187,7 +187,7 @@ public class JpegDec extends Decoder {
                 if (result != 0) {
                     /*var error = (MemorySegment) tjGetErrorStr.invokeExact();
                     String errs = error.getString(0);*/
-                    Log.error("Jpeg decode failed " + result);
+                    Log.error("Jpeg decode failed " + result+ "Err");
                 } else {
                     out.position(0);
                     out.put(yuv.asByteBuffer());

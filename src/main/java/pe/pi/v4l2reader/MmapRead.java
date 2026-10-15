@@ -2,6 +2,7 @@ package pe.pi.v4l2reader;
 
 import java.nio.file.Files;
 import com.phono.srtplight.Log;
+import java.io.IOException;
 import java.lang.foreign.*;
 import static java.lang.foreign.ValueLayout.*;
 import static java.lang.foreign.MemoryLayout.PathElement.*;
@@ -12,8 +13,12 @@ import static pe.pi.v4l2reader.V4l2Ioctls.MAP_SHARED;
 import static pe.pi.v4l2reader.V4l2Ioctls.PROT_READ;
 import static pe.pi.v4l2reader.V4l2Ioctls.PROT_WRITE;
 import static pe.pi.v4l2reader.V4l2Ioctls.VIDIOC_DQBUF;
+import static pe.pi.v4l2reader.V4l2Ioctls.VIDIOC_G_CTRL;
 import static pe.pi.v4l2reader.V4l2Ioctls.VIDIOC_QBUF;
 import static pe.pi.v4l2reader.V4l2Ioctls.VIDIOC_QUERYBUF;
+import static pe.pi.v4l2reader.V4l2Ioctls.VIDIOC_S_CTRL;
+import static pe.pi.v4l2reader.V4l2Structs.V4L2_CID_BASE;
+import static pe.pi.v4l2reader.V4l2Structs.v4l2_control;
 
 /**
  *
@@ -61,7 +66,8 @@ public class MmapRead extends V4l2Ioctls implements MmapReader, ControlMapper {
         Log.verb("bb index is " + index);
 
         ByteBuffer fb = buf.asByteBuffer();
-        ret = process(fb);
+        var sb = fb.slice(0, buf.bytesUsed);
+        ret = process(sb);
 
         enqueueBuffer(buf);
         return ret;
@@ -95,7 +101,6 @@ public class MmapRead extends V4l2Ioctls implements MmapReader, ControlMapper {
 
     public int setup(int framerate, int format) throws Throwable {
         // Define native methods
-        final int O_RDWR = 2;
 
         Log.debug("in setup()");
 
@@ -196,7 +201,7 @@ ioctl(fd, VIDIOC_S_PARM, &streamparm);
 
     @Override
     public V4l2Substitute getV4l2Sub() {
-        return null; // execing v4l2-ctl works fine....
+        return new MmapV4l2Substitute(this);
     }
 
     @Override
@@ -246,6 +251,7 @@ ioctl(fd, VIDIOC_S_PARM, &streamparm);
 
         MemorySegment buf;
         MemorySegment mapped;
+        private int bytesUsed;
 
         void set(String name, int value) {
             buf.set(JAVA_INT, v4l2_buffer.byteOffset(groupElement(name)), value);
@@ -331,10 +337,14 @@ ioctl(fd, VIDIOC_S_PARM, &streamparm);
         long offset = vbuf.getLong("m_offset");
         int length = vbuf.getInt("length");
         int index = vbuf.getInt("index");
-
-        Log.verb("DQ'd index " + index + " offset = " + offset + " length= " + length);
-
-        return buffers[index];
+        int bytesused = vbuf.getInt("bytesused");
+        if (bytesused == 0) {
+            bytesused = length;
+        }
+        Log.verb("DQ'd index " + index + " offset = " + offset + " length= " + length + "bytesused= " + bytesused);
+        var rbuff = buffers[index];
+        rbuff.bytesUsed = bytesused;
+        return rbuff;
     }
 
     V4l2Buffer mapBuffer(int fd, Arena arena, SymbolLookup libc, int index) throws Throwable {
@@ -416,4 +426,42 @@ ioctl(fd, VIDIOC_S_PARM, &streamparm);
         }
     }
 
+    public int getBasicV4l2Control(int cont) {
+        int ret = -1;
+        Log.info("getting v4l2 value for " + (cont - V4L2_CID_BASE));
+        try {
+            MemorySegment ctrl = arena.allocate(v4l2_control);
+            ctrl.set(JAVA_INT, v4l2_control.byteOffset(groupElement("id")), cont);
+
+            int rc = (int) ioctl.invoke(videoDev, VIDIOC_G_CTRL, ctrl);
+
+            if (rc < 0) {
+                throw new IOException("VIDIOC_G_CTRL failed");
+            }
+            ret = ctrl.get(JAVA_INT, v4l2_control.byteOffset(groupElement("value")));
+
+        } catch (Throwable ex) {
+            Log.error("can't get value for v4l2ctl " + (cont - V4L2_CID_BASE) + " because " + ex.getMessage());
+        }
+        return ret;
+    }
+
+    public void setBasicV4l2Control(int cont, int value) {
+        Log.info("setting v4l2 value for " + (cont - V4L2_CID_BASE) + " to " + value);
+
+        try {
+            MemorySegment ctrl = arena.allocate(v4l2_control);
+
+            ctrl.set(JAVA_INT, v4l2_control.byteOffset(groupElement("id")), cont);
+            ctrl.set(JAVA_INT, v4l2_control.byteOffset(groupElement("value")), value);
+
+            int rc = (int) ioctl.invoke(videoDev, VIDIOC_S_CTRL, ctrl);
+
+            if (rc < 0) {
+                throw new IOException("VIDIOC_S_CTRL failed");
+            }
+        } catch (Throwable ex) {
+            Log.error("can't set value for v4l2ctl " + (cont - V4L2_CID_BASE) + " because " + ex.getMessage());
+        }
+    }
 }
