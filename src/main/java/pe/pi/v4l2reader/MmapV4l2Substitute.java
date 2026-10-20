@@ -12,6 +12,7 @@ import static pe.pi.v4l2reader.V4l2Structs.V4L2_CID_CONTRAST;
 import static pe.pi.v4l2reader.V4l2Structs.V4L2_CID_EXPOSURE;
 import static pe.pi.v4l2reader.V4l2Structs.V4L2_CID_HUE;
 import static pe.pi.v4l2reader.V4l2Structs.V4L2_CID_SATURATION;
+import static pe.pi.v4l2reader.V4l2Structs.V4L2_ISP_AE_ROI;
 
 /**
  *
@@ -81,27 +82,24 @@ public class MmapV4l2Substitute implements V4l2Substitute, ControlMapper {
         return "";
     }
 
-    // these don't work at the moment so we parrot - unless we have a working sonixAPI.
     @Override
     public void setAERoi(Long v) {
+        mm.setBasicV4l2Control(V4L2_ISP_AE_ROI, v.intValue());
     }
 
     @Override
-    public Long getAERoi() {
-        return 0L;
+    public Long getAERoi() { //V4L2_ISP_AE_ROI
+        return  (long)mm.getBasicV4l2Control(V4L2_ISP_AE_ROI);
     }
 
     @Override
     public String getAE() {
         return "" + mm.getBasicV4l2Control(V4L2_CID_AE);
-
     }
 
     @Override
     public void setAE(Long v) {
-
         mm.setBasicV4l2Control(V4L2_CID_AE, v.intValue());
-
     }
 
     @Override

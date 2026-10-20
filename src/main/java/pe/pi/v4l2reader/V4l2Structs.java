@@ -42,7 +42,7 @@ public class V4l2Structs {
     static final int V4L2_CID_GAIN = (V4L2_CID_BASE + 19);
     static final int V4L2_CID_WHITE_BALANCE_TEMPERATURE = (V4L2_CID_BASE + 26);
     static final int V4L2_CID_AE = 0x009a0901; // cheating....
-    static final int V4L2_isp_ae_roi = 0x00f0f025; // really cheating
+    static final int V4L2_ISP_AE_ROI = 0x00f0f025; // really cheating
     static final int V4L2_CID_EXPOSURE = 0x009a0902; // likewise...
     static final int V4L2_CTRL_MAX_DIMS = (4);
     static final int V4L2_CTRL_FLAG_NEXT_CTRL = 0x80000000;
